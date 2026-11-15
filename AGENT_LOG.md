@@ -2,6 +2,40 @@
 
 > Continuity file. Entries are **prepended** (newest first) and never deleted.
 
+## Session — 2026-11-16 — P2+P3+P6: live crypto/forex data, instrument browser, drawing tools, premium UI
+- Agent/Tool: OpenCode · branch `main`
+- User asked (verbatim intent): buttons/UI-UX more premium + browsing tool + crypto AND forex data + finish everything remaining.
+- **Data layer (P2, `data/`):**
+  1. `Instruments.kt` — 22 instruments: 12 Binance crypto pairs + 10 forex majors/crosses; each with
+     market, feed, seed price, volatility, display decimals.
+  2. `HistoryRepository.kt` — REST klines with graceful degradation: Binance → TwelveData (if key
+     set) → ECB frankfurter for FX daily → demo. NEVER throws to the UI; returns Source(candles, kindLabel).
+  3. `LiveStreams.kt` — Binance WebSocket kline stream (in-progress + closed bars) and 24h ticker;
+     `TickerStream.snapshot()` for the browser list.
+  4. `FrankfurterSource.kt` — free ECB daily rates (no API key); open/high derived, close real.
+  5. `Http.kt` shared OkHttp; `Settings.kt` watchlist + live toggle + optional TwelveData key.
+  6. `ChartViewModel` — `loadHistory()` on instrument/TF change, streaming `applyLiveCandle`
+     merges the last bar cheaply (`updateLastBar` JS path), full rebuild only on closed bars.
+- **Instrument browser (P3):** `BrowserSheet` — Watchlist/Crypto/Forex tabs, search, star toggling
+  (SharedPreferences), live 24h quotes refreshed every 20 s while open.
+- **Drawing tools (P6):** `DrawModel` (pure Kotlin, unit-tested) + `Drawing.kt` (@Serializable,
+  data-space anchors). chart.js renders trend lines/boxes on an SVG overlay re-projected on every
+  viewport change; horizontal lines are native price lines (axis labels for free). Tap events flow
+  JS→Kotlin via `JsBridge.onTap`. Toolbar under the TF row: cursor / trendline / horizontal / box /
+  delete-selected / clear-all.
+- **Premium UI pass:** token-based theme (`TvTokens` + LocalTokens, synced with chart.js THEMES),
+  `TvComponents` (TvSegmented, TvToolButton, TvPrimaryButton, TvSecondaryButton, Scrim), new chrome:
+  market badge + source chip (BINANCE/ECB/DEMO) + live dot, OHLCV legend in monospace, animated
+  replay transport bar, toast hints, redesigned sheets with grab handle and subtitles.
+- Verification: VPS `./gradlew :app:testDebugUnitTest :app:assembleDebug` → BUILD SUCCESSFUL,
+  **21 unit tests pass** (4 new DrawModelTest). Debug APK 19,889,999 bytes.
+- Bug worth remembering: drawing ids used `System.currentTimeMillis()` — two shapes created in the
+  same millisecond got identical ids and removeSelected() deleted both (test caught it). Now `nanoTime()`.
+- Pending: CI run for this push (watch it), user on-device check of forex demo feed (needs TwelveData
+  key for intraday FX), then P7 (full forex polish), P9 (final polish).
+- Notes for next agent: all previous notes below still apply. New JS surface: `setDrawings`,
+  `update`, `visibleSpan` (unused yet); tap coordinates arrive as `onTap(time, price)` in data space.
+
 ## Session — 2026-11-15 — P3/P4/P5/P8-lite shipped: CI green (43746448959), APK delivered as v0.2.0
 - Agent/Tool: OpenCode · branch `main`
 - **NOT a new feature — a delivery/log entry** for the previous P3/P4/P5/P8-lite work. (Correction of
