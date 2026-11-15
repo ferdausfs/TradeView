@@ -1,0 +1,15 @@
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+.cxx/
+*.keystore
+captures/
+# OS
+.DS_Store
+# Generated Android project from Capacitor (not used in v1)
+android/.gradle/
+# Large bundled vendor libs are committed, but keep editor noise out
+*.log
