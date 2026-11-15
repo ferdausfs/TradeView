@@ -1,12 +1,13 @@
 package com.ferdausfs.tradeview.ui.screen
 
-import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Text
@@ -51,24 +52,19 @@ fun ChartScreen() {
         }
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(TvBackground),
     ) {
-        AndroidView(
-            factory = { chart },
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        // Top bar per spec §4: symbol + timeframe on the left.
+        // Top bar (spec §4): symbol + timeframe on the left, actions arrive in later phases.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
                 .background(TvPanel)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -77,14 +73,19 @@ fun ChartScreen() {
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            Text(
-                text = "1m",
-                color = TvText,
-                fontSize = 13.sp,
+            Text(text = "1m", color = TvText, fontSize = 13.sp)
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+        ) {
+            AndroidView(
+                factory = { chart },
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }
 }
-
-@Suppress("unused")
-private fun WebView.unused() = Unit

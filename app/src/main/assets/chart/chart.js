@@ -140,5 +140,17 @@
     fitContent: function () { chart.timeScale().fitContent(); }
   };
 
+  // P1 acceptance: the chart must show candles immediately on launch. Load the bundled
+  // sample series (P2 replaces this with live Binance data from Kotlin).
+  fetch('sample-candles.json')
+    .then(function (r) { return r.json(); })
+    .then(function (list) {
+      window.chartApi.setData(list);
+      console.log('[TradeView] sample candles loaded:', list.length);
+    })
+    .catch(function (e) {
+      console.log('[TradeView] sample candle load failed:', e && e.message);
+    });
+
   notifyReady();
 })();
