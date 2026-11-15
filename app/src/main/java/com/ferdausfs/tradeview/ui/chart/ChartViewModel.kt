@@ -2,15 +2,26 @@ package com.ferdausfs.tradeview.ui.chart
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferdausfs.tradeview.data.BinanceKlineStream
+import com.ferdausfs.tradeview.data.HistoryRepository
+import com.ferdausfs.tradeview.data.Instruments
+import com.ferdausfs.tradeview.data.Settings
+import com.ferdausfs.tradeview.data.TickerStream
 import com.ferdausfs.tradeview.domain.Aggregator
+import com.ferdausfs.tradeview.domain.DrawModel
 import com.ferdausfs.tradeview.domain.Indicators
 import com.ferdausfs.tradeview.domain.PineLite
 import com.ferdausfs.tradeview.domain.ReplayEngine
 import com.ferdausfs.tradeview.domain.SampleSeries
+import com.ferdausfs.tradeview.domain.model.Anchor
 import com.ferdausfs.tradeview.domain.model.Candle
+import com.ferdausfs.tradeview.domain.model.DrawKind
+import com.ferdausfs.tradeview.domain.model.Drawing
+import com.ferdausfs.tradeview.domain.model.Feed
+import com.ferdausfs.tradeview.domain.model.Instrument
 import com.ferdausfs.tradeview.domain.model.Timeframe
+import com.ferdausfs.tradeview.domain.model.toJson
 import com.ferdausfs.tradeview.domain.model.toJsonArray
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,55 +29,32 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
-@Serializable
-data class IndicatorInstance(
-    val id: String,
-    val kind: String,          // EMA | SMA | BB | VWAP | RSI | MACD | ATR | SCRIPT
-    val period: Int = 14,
-    val color: String,
-    val script: String? = null,
-    val scriptLabel: String? = null,
-) {
-    val isOverlay: Boolean
-        get() = kind == "EMA" || kind == "SMA" || kind == "BB" || kind == "VWAP"
-
-    val title: String
-        get() = when (kind) {
-            "EMA" -> "EMA $period"
-            "SMA" -> "SMA $period"
-            "BB" -> "BB $period"
-            "VWAP" -> "VWAP"
-            "RSI" -> "RSI $period"
-            "MACD" -> "MACD"
-            "ATR" -> "ATR $period"
-            "SCRIPT" -> scriptLabel ?: "Script"
-            else -> kind
-        }
-}
-
-@Serializable
-data class SavedScript(val name: String, val code: String)
-
 data class ChartUiState(
-    val symbol: String = "BTCUSDT",
+    val instrument: Instrument = Instruments.default(),
     val timeframe: Timeframe = Timeframe.M1,
     val candles: List<Candle> = emptyList(),
     val lastCandle: Candle? = null,
     val crosshairCandle: Candle? = null,
+    val sourceLabel: String = "Loading",
+    val loading: Boolean = true,
+    val live: Boolean = Settings.liveEnabled,
+    val quote: TickerStream.Quote? = null,
     val indicators: List<IndicatorInstance> = emptyList(),
     val scripts: List<SavedScript> = emptyList(),
+    val drawings: List<Drawing> = emptyList(),
+    val tool: DrawKind = DrawKind.Cursor,
+    val selectedDrawingId: String? = null,
     val replayActive: Boolean = false,
     val replayPlaying: Boolean = false,
     val replayIndex: Int = 0,
     val replayTotal: Int = 0,
     val replaySpeed: Double = 2.0,
-    val symbolPickerOpen: Boolean = false,
     val indicatorSheetOpen: Boolean = false,
+    val browserOpen: Boolean = false,
+    val settingsOpen: Boolean = false,
     val scriptEditorOpen: Boolean = false,
     val scriptDraft: String = "",
     val scriptError: String? = null,
@@ -77,32 +65,57 @@ class ChartViewModel : ViewModel() {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    private val history = HistoryRepository()
+    private val klines = BinanceKlineStream()
+    private val ticker = TickerStream()
+    private val drawModel = DrawModel()
+
     private val _state = MutableStateFlow(ChartUiState())
     val state: StateFlow<ChartUiState> = _state
 
     /** Bumped whenever candles must be re-pushed to the WebView. */
     val dataVersion = MutableStateFlow(0)
+
     /** Bumped whenever indicator series must be re-pushed. */
     val indicatorVersion = MutableStateFlow(0)
 
-    private var base1m: List<Candle> = emptyList()
+    /** Bumped on a single live bar update (cheap path: JS `update`, not `setData`). */
+    val tickVersion = MutableStateFlow(0)
+    var lastTick: Candle? = null
+        private set
+
+    val drawingsVersion = MutableStateFlow(0)
+
+    private var full: List<Candle> = emptyList()
     private val replay = ReplayEngine()
     private var replayJob: Job? = null
-
-    private val prefs = HashMap<String, String>()
+    private var streamJob: Job? = null
+    private var pollJob: Job? = null
+    private var prefs = HashMap<String, String>()
 
     init {
         restore()
-        if (base1m.isEmpty()) {
-            setSymbolInternal(_state.value.symbol)
-        }
+        loadHistory()
     }
 
     // ---------------------------------------------------------------- data
 
+    fun loadHistory() {
+        val s = _state.value
+        _state.update { it.copy(loading = true) }
+        viewModelScope.launch {
+            val result = history.load(s.instrument, s.timeframe, limit = if (s.timeframe == Timeframe.D1) 500 else 720)
+            full = result.candles
+            if (replay.isActive) replay.arm(Aggregator.aggregate(full, s.timeframe), replay.snapshot().visibleCount)
+            _state.update { it.copy(sourceLabel = result.kind, loading = false) }
+            rebuild()
+            startLiveFeed()
+        }
+    }
+
     private fun rebuild() {
         val s = _state.value
-        val aggregated = Aggregator.aggregate(base1m, s.timeframe)
+        val aggregated = Aggregator.aggregate(full, s.timeframe)
         val visible = if (replay.isActive) replay.visible().let { Aggregator.aggregate(it, s.timeframe) } else aggregated
         _state.update {
             it.copy(
@@ -115,28 +128,94 @@ class ChartViewModel : ViewModel() {
         pushIndicators()
     }
 
-    /** Bump so ChartScreen re-serialises and pushes the indicator series to the chart. */
-    private fun pushIndicators() {
-        indicatorVersion.value++
-    }
-
-    fun setSymbol(symbol: String) {
-        setSymbolInternal(symbol)
+    fun setInstrument(instrument: Instrument) {
+        if (instrument.id == _state.value.instrument.id) {
+            _state.update { it.copy(browserOpen = false) }
+            return
+        }
+        if (replay.isActive) exitReplay()
+        _state.update { it.copy(instrument = instrument, browserOpen = false) }
         persist()
-    }
-
-    private fun setSymbolInternal(symbol: String) {
-        base1m = SampleSeries.generate(symbol, Timeframe.M1, count = 900)
-        if (replay.isActive) replay.exit()
-        _state.update { it.copy(symbol = symbol, symbolPickerOpen = false) }
-        rebuild()
+        loadHistory()
     }
 
     fun setTimeframe(tf: Timeframe) {
         if (tf == _state.value.timeframe) return
+        if (replay.isActive) exitReplay()
         _state.update { it.copy(timeframe = tf) }
-        rebuild()
+        loadHistory()
         persist()
+    }
+
+    // ---------------------------------------------------------------- live feed
+
+    fun setLive(enabled: Boolean) {
+        Settings.liveEnabled = enabled
+        _state.update { it.copy(live = enabled) }
+        if (enabled) startLiveFeed() else stopLiveFeed()
+    }
+
+    private fun startLiveFeed() {
+        stopLiveFeed()
+        val s = _state.value
+        if (!s.live || replay.isActive) return
+        val instrument = s.instrument
+        val tf = s.timeframe
+        when (history.effectiveFeed(instrument)) {
+            Feed.BINANCE -> streamJob = viewModelScope.launch {
+                klines.candles(instrument, tf).collect { update ->
+                    applyLiveCandle(update.candle, finalized = update.closed)
+                }
+            }
+            Feed.TWELVEDATA -> pollJob = viewModelScope.launch {
+                while (isActive) {
+                    delay(45_000)
+                    runCatching { history.fetch(instrument, tf, limit = 8) }.getOrNull()
+                        ?.lastOrNull()
+                        ?.let { applyLiveCandle(it, finalized = false) }
+                }
+            }
+            Feed.DEMO -> Unit // demo series has no live source; static until refreshed
+        }
+    }
+
+    private fun stopLiveFeed() {
+        streamJob?.cancel(); streamJob = null
+        pollJob?.cancel(); pollJob = null
+    }
+
+    /** Merges a streaming bar into [full] without rebuilding the whole series. */
+    private fun applyLiveCandle(candle: Candle, finalized: Boolean) {
+        if (full.isEmpty()) return
+        val step = _state.value.timeframe.seconds
+        val existing = full.indexOfLast { it.time == candle.time }
+        full = when {
+            existing >= 0 -> full.toMutableList().also { it[existing] = candle }
+            candle.time > full.last().time && candle.time - full.last().time <= step * 4 -> full + candle
+            else -> return
+        }
+        val visible = _state.value.candles
+        val idx = visible.indexOfLast { it.time == candle.time }
+        val newVisible = when {
+            idx >= 0 -> visible.toMutableList().also { it[idx] = candle }
+            visible.isNotEmpty() && candle.time > visible.last().time -> visible + candle
+            else -> visible
+        }
+        _state.update { it.copy(candles = newVisible, lastCandle = newVisible.lastOrNull()) }
+        lastTick = candle
+        tickVersion.value++
+        if (finalized) pushIndicators()
+    }
+
+    /** Quote strip data (crypto only; forex shows the last close instead). */
+    fun refreshQuote() {
+        val instrument = _state.value.instrument
+        if (history.effectiveFeed(instrument) != Feed.BINANCE) return
+        viewModelScope.launch {
+            ticker.snapshot(listOf(instrument))[instrument.id]?.let { q ->
+                _state.update { it.copy(quote = q) }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- indicators
@@ -149,7 +228,7 @@ class ChartViewModel : ViewModel() {
             period = defaultPeriod(kind),
             color = color,
         )
-        _state.update { it.copy(indicators = it.indicators + instance) }
+        _state.update { it.copy(indicators = it.indicators + instance, indicatorSheetOpen = false) }
         pushIndicators()
         persist()
     }
@@ -166,53 +245,63 @@ class ChartViewModel : ViewModel() {
         persist()
     }
 
+    fun toggleIndicatorSheet(open: Boolean) = _state.update { it.copy(indicatorSheetOpen = open) }
+
+    private fun pushIndicators() {
+        indicatorVersion.value++
+    }
+
+    // ---------------------------------------------------------------- scripts
+
     fun openScriptEditor() {
-        _state.update { it.copy(scriptEditorOpen = true, scriptDraft = it.scriptDraft.ifEmpty { "plot(ema(close, 20))" }, scriptError = null, indicatorSheetOpen = false) }
+        _state.update {
+            it.copy(
+                scriptEditorOpen = true,
+                scriptDraft = it.scriptDraft.ifEmpty { "plot(ema(close, 20))" },
+                scriptError = null,
+                indicatorSheetOpen = false,
+            )
+        }
     }
 
-    fun closeScriptEditor() {
-        _state.update { it.copy(scriptEditorOpen = false) }
-    }
+    fun closeScriptEditor() = _state.update { it.copy(scriptEditorOpen = false) }
 
-    fun setScriptDraft(text: String) {
-        _state.update { it.copy(scriptDraft = text, scriptError = null) }
-    }
+    fun setScriptDraft(text: String) = _state.update { it.copy(scriptDraft = text, scriptError = null) }
 
     /** Compile + live-preview the draft on the current symbol without saving. */
     fun previewScript() {
         val draft = _state.value.scriptDraft
-        val result = PineLite.compile(draft, _state.value.candles)
-        result.fold(
+        PineLite.compile(draft, _state.value.candles).fold(
             onSuccess = {
                 val instance = IndicatorInstance(
-                    id = "SCRIPT-preview",
+                    id = PreviewScriptId,
                     kind = "SCRIPT",
                     color = "#F0B90B",
                     script = draft,
                     scriptLabel = it.label,
                 )
-                _state.update { st -> st.copy(indicators = st.indicators.filterNot { it.id == "SCRIPT-preview" } + instance, scriptError = null) }
+                _state.update { st ->
+                    st.copy(indicators = st.indicators.filterNot { it.id == PreviewScriptId } + instance, scriptError = null)
+                }
                 pushIndicators()
             },
-            onFailure = { e ->
-                _state.update { it.copy(scriptError = e.message ?: "error") }
-            },
+            onFailure = { e -> _state.update { it.copy(scriptError = e.message ?: "error") } },
         )
     }
 
     fun saveScript() {
         val s = _state.value
-        val result = PineLite.compile(s.scriptDraft, s.candles)
-        result.fold(
+        PineLite.compile(s.scriptDraft, s.candles).fold(
             onSuccess = { compiled ->
                 val name = compiled.label.removePrefix("S: ").ifEmpty { "script" }
                 val saved = SavedScript(name = name, code = s.scriptDraft)
-                val scripts = s.scripts.filterNot { it.code == saved.code } + saved
                 _state.update {
                     it.copy(
-                        scripts = scripts,
+                        scripts = it.scripts.filterNot { sc -> sc.code == saved.code } + saved,
                         indicators = it.indicators.map { ind ->
-                            if (ind.id == "SCRIPT-preview") ind.copy(id = "SCRIPT-${System.currentTimeMillis()}", scriptLabel = compiled.label) else ind
+                            if (ind.id == PreviewScriptId) {
+                                ind.copy(id = "SCRIPT-${System.currentTimeMillis()}", scriptLabel = compiled.label)
+                            } else ind
                         },
                         scriptEditorOpen = false,
                         toast = "Script saved",
@@ -223,10 +312,6 @@ class ChartViewModel : ViewModel() {
             },
             onFailure = { e -> _state.update { it.copy(scriptError = e.message ?: "error") } },
         )
-    }
-
-    fun loadScript(saved: SavedScript) {
-        _state.update { it.copy(scriptDraft = saved.code, scriptEditorOpen = true, scriptError = null) }
     }
 
     fun addSavedScript(saved: SavedScript) {
@@ -247,19 +332,98 @@ class ChartViewModel : ViewModel() {
         persist()
     }
 
+    // ---------------------------------------------------------------- drawings (P6)
+
+    fun setTool(tool: DrawKind) {
+        drawModel.cancelPending()
+        _state.update {
+            it.copy(
+                tool = tool,
+                selectedDrawingId = null,
+                drawings = drawModel.all(),
+                toast = when (tool) {
+                    DrawKind.TrendLine -> "Tap two points to draw a trend line"
+                    DrawKind.Horizontal -> "Tap the price level"
+                    DrawKind.Rectangle -> "Tap two corners"
+                    else -> null
+                },
+            )
+        }
+        publishDrawings()
+    }
+
+    /** A tap coming from the WebView in data space. */
+    fun onTap(timeSec: Long, price: Double) {
+        val tool = _state.value.tool
+        if (!drawModel.hasTool(tool)) {
+            // Cursor mode: select or deselect whatever is under the finger.
+            drawModel.hitTest(Anchor(timeSec, price), visiblePriceSpan())
+            _state.update { it.copy(selectedDrawingId = drawModel.selectedId, drawings = drawModel.all()) }
+            publishDrawings()
+            return
+        }
+        when (drawModel.addPoint(tool, Anchor(timeSec, price))) {
+            "created" -> {
+                _state.update {
+                    it.copy(
+                        tool = DrawKind.Cursor,
+                        drawings = drawModel.all(),
+                        toast = "Drawing added",
+                    )
+                }
+                publishDrawings()
+                persist()
+            }
+            "armed" -> _state.update {
+                it.copy(toast = if (tool == DrawKind.Horizontal) null else "Now tap the second point")
+            }
+        }
+    }
+
+    fun removeSelectedDrawing() {
+        drawModel.removeSelected()
+        _state.update { it.copy(drawings = drawModel.all(), selectedDrawingId = null, tool = DrawKind.Cursor) }
+        publishDrawings()
+        persist()
+    }
+
+    fun clearDrawings() {
+        drawModel.clearAll()
+        _state.update { it.copy(drawings = emptyList(), selectedDrawingId = null) }
+        publishDrawings()
+        persist()
+    }
+
+    /** Kotlin cannot read the JS viewport synchronously; approximate from the visible bars. */
+    private fun visiblePriceSpan(): Double {
+        val visible = _state.value.candles
+        if (visible.isEmpty()) return 0.0
+        val hi = visible.maxOf { it.high }
+        val lo = visible.minOf { it.low }
+        return (hi - lo).coerceAtLeast(hi * 0.001)
+    }
+
+    private fun publishDrawings() {
+        drawingsVersion.value++
+    }
+
+    fun drawingsJson(): String = _state.value.drawings.toJson()
+
     // ---------------------------------------------------------------- replay
 
     fun startReplayBarsBack(barsBack: Int) {
-        val base = Aggregator.aggregate(base1m, _state.value.timeframe)
+        val base = Aggregator.aggregate(full, _state.value.timeframe)
         if (base.size < 30) return
         val start = (base.size - barsBack).coerceIn(10, base.size)
         replay.arm(base, start)
+        stopLiveFeed()
         _state.update {
             it.copy(
                 replayActive = true,
                 replayPlaying = false,
                 replayIndex = start,
                 replayTotal = base.size,
+                tool = DrawKind.Cursor,
                 toast = null,
             )
         }
@@ -279,17 +443,9 @@ class ChartViewModel : ViewModel() {
         _state.update { it.copy(replayPlaying = replay.isPlaying) }
     }
 
-    fun stepForward() {
-        if (!replay.isActive) return
-        replay.stepForward()
-        publishReplay()
-    }
+    fun stepForward() { if (replay.isActive) { replay.stepForward(); publishReplay() } }
 
-    fun stepBack() {
-        if (!replay.isActive) return
-        replay.stepBack()
-        publishReplay()
-    }
+    fun stepBack() { if (replay.isActive) { replay.stepBack(); publishReplay() } }
 
     fun setReplaySpeed(perSecond: Double) {
         replay.setSpeed(perSecond)
@@ -301,6 +457,7 @@ class ChartViewModel : ViewModel() {
         replay.exit()
         _state.update { it.copy(replayActive = false, replayPlaying = false, replayIndex = 0, replayTotal = 0) }
         rebuild()
+        startLiveFeed()
     }
 
     private fun startTicker() {
@@ -335,71 +492,79 @@ class ChartViewModel : ViewModel() {
         pushIndicators()
     }
 
-    // ---------------------------------------------------------------- crosshair / legend
+    // ---------------------------------------------------------------- crosshair / misc
 
     fun onCrosshair(timeSec: Long, price: Double) {
-        val hit = _state.value.candles.firstOrNull { it.time == timeSec }
-        if (hit != null) _state.update { it.copy(crosshairCandle = hit) }
+        val hit = _state.value.candles.firstOrNull { it.time == timeSec } ?: return
+        _state.update { it.copy(crosshairCandle = hit) }
     }
 
-    fun onCrosshairGone() {
-        _state.update { it.copy(crosshairCandle = null) }
+    fun onCrosshairGone() = _state.update { it.copy(crosshairCandle = null) }
+
+    fun consumeToast() = _state.update { it.copy(toast = null) }
+
+    fun toggleBrowser(open: Boolean) = _state.update { it.copy(browserOpen = open) }
+
+    fun toggleSettings(open: Boolean) = _state.update { it.copy(settingsOpen = open) }
+
+    fun isDrawTool(tool: DrawKind): Boolean = drawModel.hasTool(tool)
+
+
+    fun setTwelveDataKey(key: String) {
+        Settings.setTwelveDataKey(key)
+        loadHistory()
     }
-
-    fun consumeToast() {
-        _state.update { it.copy(toast = null) }
-    }
-
-    // ---------------------------------------------------------------- sheet toggles
-
-    fun toggleSymbolPicker(open: Boolean) = _state.update { it.copy(symbolPickerOpen = open) }
-    fun toggleIndicatorSheet(open: Boolean) = _state.update { it.copy(indicatorSheetOpen = open) }
 
     // ---------------------------------------------------------------- bridge payloads
 
     fun candlesJson(): String = _state.value.candles.toJsonArray()
 
     /**
-     * Builds the indicator payload: one entry per pane. Pane 0 is the main (price) pane;
-     * every non-overlay indicator gets its own pane.
+     * Builds the indicator payload: overlays on the price pane, one entry per oscillator pane.
      */
     fun indicatorsJson(): String {
         val candles = _state.value.candles
-        if (candles.size < 5) return "[]"
+        if (candles.size < 5) return """{"overlays":[],"panes":[]}"""
         val overlays = ArrayList<String>()
         val panes = ArrayList<String>()
 
         for (instance in _state.value.indicators) {
             when (instance.kind) {
-                "EMA" -> overlays += """{"kind":"line","color":"${instance.color}","width":2,"data":${lineData(candles, Indicators.ema(closes(candles), instance.period))}}"""
-                "SMA" -> overlays += """{"kind":"line","color":"${instance.color}","width":2,"data":${lineData(candles, Indicators.sma(closes(candles), instance.period))}}"""
+                "EMA" -> overlays += line("""{"kind":"line","color":"${instance.color}","width":2,"data":""", lineData(candles, Indicators.ema(closes(candles), instance.period)))
+                "SMA" -> overlays += line("""{"kind":"line","color":"${instance.color}","width":2,"data":""", lineData(candles, Indicators.sma(closes(candles), instance.period)))
                 "BB" -> {
                     val bb = Indicators.bollinger(candles, instance.period)
-                    overlays += """{"kind":"line","color":"${instance.color}","width":1,"data":${lineData(candles, bb.upper)}}"""
-                    overlays += """{"kind":"line","color":"${instance.color}","width":1,"data":${lineData(candles, bb.middle)}}"""
-                    overlays += """{"kind":"line","color":"${instance.color}","width":1,"data":${lineData(candles, bb.lower)}}"""
+                    listOf(bb.upper, bb.middle, bb.lower).forEach { band ->
+                        overlays += line("""{"kind":"line","color":"${instance.color}","width":1,"data":""", lineData(candles, band))
+                    }
                 }
-                "VWAP" -> overlays += """{"kind":"line","color":"${instance.color}","width":2,"data":${lineData(candles, Indicators.vwap(candles))}}"""
-                "RSI" -> panes += """{"series":[{"kind":"line","color":"${instance.color}","width":2,"data":${lineData(candles, Indicators.rsi(candles, instance.period))}}],"fixedRange":{"min":0,"max":100}}"""
+                "VWAP" -> overlays += line("""{"kind":"line","color":"${instance.color}","width":2,"data":""", lineData(candles, Indicators.vwap(candles)))
+                "RSI" -> panes += """{"series":[${line("""{"kind":"line","color":"${instance.color}","width":2,"data":""", lineData(candles, Indicators.rsi(candles, instance.period)))}}],"fixedRange":{"min":0,"max":100}}"""
                 "MACD" -> {
                     val (macd, signal, hist) = Indicators.macd(closes(candles))
-                    panes += """{"series":[{"kind":"histogram","color":"#26A69A","width":1,"data":${histData(candles, hist)}},{"kind":"line","color":"#2962FF","width":2,"data":${lineData(candles, macd)}},{"kind":"line","color":"#FF9800","width":2,"data":${lineData(candles, signal)}}]}"""
-                }
-                "ATR" -> panes += """{"series":[{"kind":"line","color":"${instance.color}","width":2,"data":${lineData(candles, Indicators.atr(candles, instance.period))}}]}"""
-                "SCRIPT" -> {
-                    if (instance.script != null) {
-                        PineLite.compile(instance.script, candles).fold(
-                            onSuccess = {
-                                panes += """{"series":[{"kind":"line","color":"${instance.color}","width":2,"data":${lineData(candles, it.values)}}]}"""
-                            },
-                            onFailure = { },
-                        )
+                    val series = buildString {
+                        append("""{"kind":"histogram","color":"#26A69A","width":1,"data":""").append(histData(candles, hist)).append('}')
+                        append(',').append(line("""{"kind":"line","color":"#2962FF","width":2,"data":""", lineData(candles, macd)))
+                        append(',').append(line("""{"kind":"line","color":"#FF9800","width":2,"data":""", lineData(candles, signal)))
                     }
+                    panes += """{"series":[$series]}"""
+                }
+                "ATR" -> panes += """{"series":[${line("""{"kind":"line","color":"${instance.color}","width":2,"data":""", lineData(candles, Indicators.atr(candles, instance.period)))}}]}"""
+                "SCRIPT" -> {
+                    val script = instance.script ?: continue
+                    PineLite.compile(script, candles).fold(
+                        onSuccess = {
+                            panes += """{"series":[${line("""{"kind":"line","color":"${instance.color}","width":2,"data":""", lineData(candles, it.values))}}]}"""
+                        },
+                        onFailure = { },
+                    )
                 }
             }
         }
         return """{"overlays":[${overlays.joinToString(",")}],"panes":[${panes.joinToString(",")}]}"""
     }
+
+    private fun line(prefix: String, dataJson: String): String = prefix + dataJson + "}"
 
     private fun closes(candles: List<Candle>) = candles.map { it.close }
 
@@ -434,40 +599,42 @@ class ChartViewModel : ViewModel() {
 
     private fun persist() {
         val s = _state.value
-        prefs["symbol"] = s.symbol
+        prefs["instrument"] = s.instrument.id
         prefs["tf"] = s.timeframe.name
+        prefs["tool"] = s.tool.name
         prefs["indicators"] = json.encodeToString(ListSerializer(IndicatorInstance.serializer()), s.indicators)
         prefs["scripts"] = json.encodeToString(ListSerializer(SavedScript.serializer()), s.scripts)
+        prefs["drawings"] = json.encodeToString(ListSerializer(Drawing.serializer()), s.drawings)
         Store.write(prefs)
     }
 
     private fun restore() {
-        val map = Store.read() ?: return
-        prefs.putAll(map)
-        val symbol = map["symbol"] ?: "BTCUSDT"
-        val tf = map["tf"]?.let { runCatching { Timeframe.valueOf(it) }.getOrNull() } ?: Timeframe.M1
-        val indicators = map["indicators"]?.let {
-            runCatching { json.decodeFromString(ListSerializer(IndicatorInstance.serializer()), it) }.getOrDefault(emptyList())
-        } ?: emptyList()
-        val scripts = map["scripts"]?.let {
-            runCatching { json.decodeFromString(ListSerializer(SavedScript.serializer()), it) }.getOrDefault(emptyList())
-        } ?: emptyList()
-        base1m = SampleSeries.generate(symbol, Timeframe.M1, count = 900)
-        val aggregated = Aggregator.aggregate(base1m, tf)
+        val map = Store.read()
+        val prefsMap = map ?: emptyMap()
+        prefs.putAll(prefsMap)
+        val instrument = prefsMap["instrument"]?.let { Instruments.find(it) } ?: Instruments.default()
+        val tf = prefsMap["tf"]?.let { runCatching { Timeframe.valueOf(it) }.getOrNull() } ?: Timeframe.M1
+        val indicators = decodeList(prefsMap["indicators"], IndicatorInstance.serializer())
+        val scripts = decodeList(prefsMap["scripts"], SavedScript.serializer())
+        val drawings = decodeList(prefsMap["drawings"], Drawing.serializer())
+        drawModel.replace(drawings)
+        full = SampleSeries.generate(instrument, tf, 400) // placeholder until REST answers
         _state.update {
             it.copy(
-                symbol = symbol,
+                instrument = instrument,
                 timeframe = tf,
-                candles = aggregated,
-                lastCandle = aggregated.lastOrNull(),
+                candles = full,
+                lastCandle = full.lastOrNull(),
                 indicators = indicators,
                 scripts = scripts,
+                drawings = drawings,
             )
         }
         dataVersion.value++
     }
 
-    private fun setSymbolInternalIfNeeded() {}
+    private inline fun <reified T> decodeList(raw: String?, serializer: kotlinx.serialization.KSerializer<T>): List<T> =
+        raw?.let { runCatching { json.decodeFromString(ListSerializer(serializer), it) }.getOrDefault(emptyList()) } ?: emptyList()
 
     private fun nextColor(index: Int): String {
         val palette = listOf("#2962FF", "#FF9800", "#AB47BC", "#26C6DA", "#EC407A", "#8BC34A", "#FF7043")
@@ -481,5 +648,9 @@ class ChartViewModel : ViewModel() {
         "RSI" -> 14
         "ATR" -> 14
         else -> 14
+    }
+
+    private companion object {
+        const val PreviewScriptId = "SCRIPT-preview"
     }
 }

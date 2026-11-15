@@ -12,6 +12,8 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
+import com.ferdausfs.tradeview.domain.model.Candle
+import com.ferdausfs.tradeview.domain.model.toJson
 
 /**
  * Owns the chart WebView. Kotlin owns all data/logic; this class only forwards JSON to the
@@ -85,6 +87,10 @@ class ChartWebView(context: Context) : WebView(context) {
     fun setData(json: String) = run("window.chartApi.setData($json);")
 
     fun setIndicators(json: String) = run("window.chartApi.setIndicators($json);")
+
+    fun setDrawings(json: String) = run("window.chartApi.setDrawings($json);")
+
+    fun updateLastBar(c: Candle) = run("window.chartApi.update(${c.toJson()});")
 
     fun setLogScale(on: Boolean) = run("window.chartApi.setLogScale(${if (on) "true" else "false"});")
 

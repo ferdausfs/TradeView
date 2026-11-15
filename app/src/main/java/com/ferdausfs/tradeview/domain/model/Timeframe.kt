@@ -13,4 +13,15 @@ enum class Timeframe(val label: String, val seconds: Long) {
     D1("1D", 86_400L);
 
     val shortLabel: String get() = label
+
+    /** Binance kline interval parameter. */
+    val binanceInterval: String
+        get() = when (this) {
+            M1 -> "1m"
+            M5 -> "5m"
+            M15 -> "15m"
+            H1 -> "1h"
+            H4 -> "4h"
+            D1 -> "1d"
+        }
 }

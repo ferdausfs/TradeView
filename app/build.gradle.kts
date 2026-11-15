@@ -73,6 +73,8 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
 
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     implementation("androidx.webkit:webkit:1.18.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

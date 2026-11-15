@@ -1,15 +1,16 @@
 package com.ferdausfs.tradeview.ui.chart
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -21,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,9 +29,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ferdausfs.tradeview.bridge.ChartWebView
 import com.ferdausfs.tradeview.bridge.JsBridge
-import com.ferdausfs.tradeview.domain.SampleSeries
-import com.ferdausfs.tradeview.domain.model.Timeframe
-import com.ferdausfs.tradeview.ui.theme.TvBackground
+import com.ferdausfs.tradeview.data.Instruments
+import com.ferdausfs.tradeview.data.Settings
+import com.ferdausfs.tradeview.data.TickerStream
+import com.ferdausfs.tradeview.domain.model.DrawKind
+import com.ferdausfs.tradeview.ui.common.Scrim
+import com.ferdausfs.tradeview.ui.theme.LocalTokens
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChartScreen(vm: ChartViewModel = viewModel()) {
@@ -39,11 +43,14 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val dataVersion by vm.dataVersion.collectAsState()
     val indicatorVersion by vm.indicatorVersion.collectAsState()
+    val tickVersion by vm.tickVersion.collectAsState()
+    val drawingsVersion by vm.drawingsVersion.collectAsState()
+    val t = LocalTokens.current
 
-    var symbolSheet by remember { mutableStateOf(false) }
-    var tfSheet by remember { mutableStateOf(false) }
-    var settingsFor by remember { mutableStateOf<IndicatorInstance?>(null) }
     var logScale by remember { mutableStateOf(false) }
+    var settingsFor by remember { mutableStateOf<IndicatorInstance?>(null) }
+    var quotes by remember { mutableStateOf<Map<String, TickerStream.Quote>>(emptyMap()) }
+    var watchlist by remember { mutableStateOf(Settings.watchlist()) }
 
     val webView = remember {
         ChartWebView(context).apply {
@@ -52,6 +59,7 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
                     onCrosshair = vm::onCrosshair,
                     crosshairGone = vm::onCrosshairGone,
                     ready = { markReady() },
+                    tap = vm::onTap,
                 ),
                 "AndroidBridge",
             )
@@ -67,30 +75,65 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
         }
     }
 
-    // Data + indicators are pushed whenever either version counter changes.
+    // Full redraw: candles + indicators (indicators depend on the visible slice).
     LaunchedEffect(dataVersion, indicatorVersion) {
         webView.setData(vm.candlesJson())
         webView.setIndicators(vm.indicatorsJson())
     }
 
+    // Cheap path for streaming: patch only the last bar.
+    LaunchedEffect(tickVersion) {
+        vm.lastTick?.let { webView.updateLastBar(it) }
+    }
+
+    LaunchedEffect(drawingsVersion) {
+        webView.setDrawings(vm.drawingsJson())
+    }
+
+    LaunchedEffect(state.instrument.id, state.timeframe) {
+        webView.fitContent()
+        vm.refreshQuote()
+    }
+
+    // Toast auto-dismiss.
+    LaunchedEffect(state.toast) {
+        if (state.toast != null) {
+            delay(2400)
+            vm.consumeToast()
+        }
+    }
+
+    // Quote polling while the browser sheet is open.
+    LaunchedEffect(state.browserOpen) {
+        if (!state.browserOpen) return@LaunchedEffect
+        while (true) {
+            val snapshot = runCatching { TickerStream().snapshot(Instruments.crypto) }.getOrNull()
+            if (snapshot != null) quotes = quotes + snapshot
+            delay(20_000)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(TvBackground)
+            .background(t.background)
             .statusBarsPadding(),
     ) {
         ChartTopBar(
-            symbol = state.symbol,
+            instrument = state.instrument,
             timeframe = state.timeframe,
             last = state.crosshairCandle ?: state.lastCandle,
+            quote = state.quote ?: quotes[state.instrument.id],
+            sourceLabel = state.sourceLabel,
+            live = state.live,
+            loading = state.loading,
             replayActive = state.replayActive,
-            onSymbolClick = { symbolSheet = true },
-            onTimeframeClick = { tfSheet = true },
-            onReplayClick = {
-                if (state.replayActive) vm.exitReplay() else vm.startReplayBarsBack(120)
-            },
+            tool = state.tool,
+            onSymbolClick = { vm.toggleBrowser(true) },
+            onLiveToggle = { vm.setLive(!state.live) },
             onIndicatorsClick = { vm.toggleIndicatorSheet(true) },
-            onSettingsClick = { logScale = !logScale; webView.setLogScale(logScale) },
+            onReplayClick = { if (state.replayActive) vm.exitReplay() else vm.startReplayBarsBack(120) },
+            onSettingsClick = { vm.toggleSettings(true) },
         )
 
         Box(
@@ -100,127 +143,138 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
         ) {
             AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
 
-            state.crosshairCandle?.let { c ->
+            if (vm.isDrawTool(state.tool)) {
                 Text(
-                    "${c.time}  O ${c.open}  H ${c.high}  L ${c.low}  C ${c.close}",
-                    color = Color.White,
-                    fontSize = 10.sp,
+                    "${state.tool.label} · tap the chart",
+                    color = t.accent,
+                    fontSize = 11.sp,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .padding(6.dp),
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(t.panel.copy(alpha = 0.92f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
                 )
+            }
+
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                TvToast(state.toast)
             }
         }
 
-        if (state.replayActive) {
-            ReplayBar(
-                playing = state.replayPlaying,
-                index = state.replayIndex,
-                total = state.replayTotal,
-                speed = state.replaySpeed,
-                onPlayPause = vm::togglePlay,
-                onStepBack = vm::stepBack,
-                onStepForward = vm::stepForward,
-                onSpeed = vm::setReplaySpeed,
-                onExit = vm::exitReplay,
+        ReplayBar(
+            visible = state.replayActive,
+            playing = state.replayPlaying,
+            index = state.replayIndex,
+            total = state.replayTotal,
+            speed = state.replaySpeed,
+            onPlayPause = vm::togglePlay,
+            onStepBack = vm::stepBack,
+            onStepForward = vm::stepForward,
+            onSpeed = vm::setReplaySpeed,
+            onExit = vm::exitReplay,
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(t.panel)
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TimeframeRow(selected = state.timeframe, onSelect = vm::setTimeframe)
+            Spacer(Modifier.width(6.dp))
+            DrawingToolbar(
+                tool = state.tool,
+                hasSelection = state.selectedDrawingId != null,
+                hasDrawings = state.drawings.isNotEmpty(),
+                onTool = vm::setTool,
+                onDeleteSelected = vm::removeSelectedDrawing,
+                onClearAll = vm::clearDrawings,
             )
         }
-
-        TimeframeRow(selected = state.timeframe, onSelect = vm::setTimeframe)
 
         ChartBottomBar(
             logScale = logScale,
+            indicatorCount = state.indicators.size,
             onLogScale = { logScale = !logScale; webView.setLogScale(logScale) },
             onIndicators = { vm.toggleIndicatorSheet(true) },
-            onReplay = { if (state.replayActive) vm.exitReplay() else vm.startReplayBarsBack(120) },
             onFit = { webView.fitContent() },
+            onBrowser = { vm.toggleBrowser(true) },
         )
     }
 
-    // ---- sheets (spec §4/§5: mobile pickers are bottom sheets, never dropdowns) ----
-    if (symbolSheet) {
-        SheetOverlay(onClose = { symbolSheet = false }) { close ->
-            SymbolSheet(
-                symbols = SampleSeries.symbols.map { it.symbol },
-                selected = state.symbol,
-                onSelect = { vm.setSymbol(it); close() },
-                onClose = close,
-            )
-        }
-    }
-
-    if (tfSheet) {
-        SheetOverlay(onClose = { tfSheet = false }) { close ->
-            TimeframeSheet(
-                selected = state.timeframe.label,
-                onSelect = { label ->
-                    Timeframe.entries.firstOrNull { it.label == label }?.let(vm::setTimeframe)
-                    close()
+    // ---------------------------------------------------------------- sheets
+    if (state.browserOpen) {
+        Scrim(onClick = { vm.toggleBrowser(false) }) {
+            BrowserSheet(
+                selectedId = state.instrument.id,
+                watchlist = watchlist,
+                quotes = quotes,
+                onSelect = { vm.setInstrument(it) },
+                onToggleStar = { id ->
+                    Settings.toggleFavorite(id)
+                    watchlist = Settings.watchlist()
                 },
-                onClose = close,
+                onClose = { vm.toggleBrowser(false) },
             )
         }
     }
 
     if (state.indicatorSheetOpen) {
-        SheetOverlay(onClose = { vm.toggleIndicatorSheet(false) }) { close ->
+        Scrim(onClick = { vm.toggleIndicatorSheet(false) }) {
             IndicatorSheet(
                 instances = state.indicators,
                 scripts = state.scripts,
                 onAdd = vm::addIndicator,
                 onRemove = vm::removeIndicator,
-                onToggle = {},
-                onEditParams = { inst -> settingsFor = inst },
+                onEditParams = { settingsFor = it },
                 onOpenScriptEditor = vm::openScriptEditor,
                 onAddScript = vm::addSavedScript,
                 onDeleteScript = vm::deleteScript,
-                onClose = close,
+                onClose = { vm.toggleIndicatorSheet(false) },
             )
         }
     }
 
     if (state.scriptEditorOpen) {
-        SheetOverlay(onClose = vm::closeScriptEditor) { close ->
+        Scrim(onClick = vm::closeScriptEditor) {
             ScriptEditorSheet(
                 draft = state.scriptDraft,
                 error = state.scriptError,
                 onDraftChange = vm::setScriptDraft,
                 onPreview = vm::previewScript,
                 onSave = vm::saveScript,
-                onClose = close,
+                onClose = vm::closeScriptEditor,
+            )
+        }
+    }
+
+    if (state.settingsOpen) {
+        Scrim(onClick = { vm.toggleSettings(false) }) {
+            SettingsSheet(
+                live = state.live,
+                twelveDataKey = Settings.twelveDataKey(),
+                drawingCount = state.drawings.size,
+                logScale = logScale,
+                onLive = vm::setLive,
+                onLogScale = { logScale = it; webView.setLogScale(it) },
+                onKeyChange = vm::setTwelveDataKey,
+                onClearDrawings = vm::clearDrawings,
+                onClose = { vm.toggleSettings(false) },
             )
         }
     }
 
     settingsFor?.let { inst ->
-        SheetOverlay(onClose = { settingsFor = null }) { close ->
+        Scrim(onClick = { settingsFor = null }) {
             IndicatorSettingsSheet(
                 instance = inst,
                 onApply = { updated ->
                     vm.updateIndicator(updated)
-                    close()
+                    settingsFor = null
                 },
-                onClose = close,
+                onClose = { settingsFor = null },
             )
         }
-    }
-}
-
-@Composable
-private fun SheetOverlay(
-    onClose: () -> Unit,
-    content: @Composable (() -> Unit) -> Unit,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
-            .clickable(interactionSource = interaction, indication = null) { onClose() }
-            .navigationBarsPadding(),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        content(onClose)
     }
 }

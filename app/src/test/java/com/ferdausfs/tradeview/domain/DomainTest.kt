@@ -1,6 +1,8 @@
 package com.ferdausfs.tradeview.domain
 
+import com.ferdausfs.tradeview.domain.model.Anchor
 import com.ferdausfs.tradeview.domain.model.Candle
+import com.ferdausfs.tradeview.domain.model.DrawKind
 import com.ferdausfs.tradeview.domain.model.Timeframe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -150,6 +152,45 @@ class ReplayEngineTest {
         engine.arm(history, 12)
         repeat(20) { engine.stepBack() }
         assertEquals(10, engine.visible().size)
+    }
+}
+
+class DrawModelTest {
+
+    @Test
+    fun `horizontal line needs one point and trend line two`() {
+        val model = DrawModel()
+        assertEquals("created", model.addPoint(DrawKind.Horizontal, Anchor(100L, 42.0)))
+        assertEquals("armed", model.addPoint(DrawKind.TrendLine, Anchor(100L, 10.0)))
+        assertEquals("created", model.addPoint(DrawKind.TrendLine, Anchor(200L, 20.0)))
+        assertEquals(2, model.all().size)
+        assertTrue(model.all().all { it.isComplete })
+    }
+
+    @Test
+    fun `hit test selects the nearest horizontal line`() {
+        val model = DrawModel()
+        model.addPoint(DrawKind.Horizontal, Anchor(0L, 100.0))
+        model.addPoint(DrawKind.Horizontal, Anchor(0L, 200.0))
+        val hit = model.hitTest(Anchor(50L, 198.0), priceSpan = 100.0)  // tol = 8 → hits 200
+        assertEquals(model.all()[1].id, hit)
+    }
+
+    @Test
+    fun `remove selected deletes only the selection`() {
+        val model = DrawModel()
+        model.addPoint(DrawKind.Horizontal, Anchor(0L, 10.0))
+        model.addPoint(DrawKind.Horizontal, Anchor(0L, 20.0))
+        model.hitTest(Anchor(0L, 20.3), priceSpan = 5.0)   // tol = 0.4 → hits 20.0
+        model.removeSelected()
+        assertEquals(1, model.all().size)
+    }
+
+    @Test
+    fun `cursor tool never creates`() {
+        val model = DrawModel()
+        assertEquals("idle", model.addPoint(DrawKind.Cursor, Anchor(0L, 1.0)))
+        assertTrue(model.all().isEmpty())
     }
 }
 
