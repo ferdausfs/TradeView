@@ -2,6 +2,26 @@
 
 > Continuity file. Entries are **prepended** (newest first) and never deleted.
 
+## Session — 2026-11-15 — P1 sample candles visible on launch
+- Agent/Tool: OpenCode · branch `main` · commit 5d0e629 · CI run **43738440855 → success**
+- Feature (one only): make the chart actually show candles on first launch (P1 acceptance)
+- What changed: (1) `app/src/main/assets/chart/sample-candles.json` — 480 deterministic 1-minute
+  candles (seeded PRNG, BTC-USD-like ~96k prices, 2026-11-10 00:00 UTC start) so every build/device
+  shows the identical series; (2) `chart.js` fetches that file and calls `chartApi.setData` on load
+  (fetch works inside the WebViewAssetLoader origin; P2 will replace this with Kotlin-pushed data);
+  (3) `ChartScreen` restructured to a Column: top bar + chart `Box` with `navigationBarsPadding`,
+  so the chart no longer extends under the gesture bar.
+- Verification: VPS `./gradlew :app:assembleDebug` → SUCCESS; GitHub Actions run 43738440855 →
+  success; artifact downloaded and unzipped — `assets/chart/sample-candles.json` (46,327 B) present.
+  APK installed-ready at `/storage/emulated/0/Download/TradeView-v0.1.0-debug.apk` (12,025,866 B).
+- Touched files: app/src/main/assets/chart/sample-candles.json (new), app/src/main/assets/chart/chart.js,
+  app/src/main/java/com/ferdausfs/tradeview/ui/screen/ChartScreen.kt
+- Pending items: P2 — Binance REST history + WebSocket live candle through a Kotlin adapter.
+- Notes for next agent: the JS `fetch('sample-candles.json')` is P1-only scaffolding; in P2 the Kotlin
+  side must call `setData`/`update` and the fetch block should be removed. Docs-only commits no longer
+  trigger CI (paths-ignore).
+
+
 ## Session — 2026-11-15 — CI fix (APK artifact live)
 - Agent/Tool: OpenCode · branch `main` · commit b3d4291
 - Feature (one only): CI-only fix so the APK actually builds on GitHub Actions
