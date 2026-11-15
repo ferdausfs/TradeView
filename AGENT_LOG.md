@@ -2,6 +2,23 @@
 
 > Continuity file. Entries are **prepended** (newest first) and never deleted.
 
+## Session — 2026-11-15 — P3/P4/P5/P8-lite shipped: CI green (43746448959), APK delivered as v0.2.0
+- Agent/Tool: OpenCode · branch `main`
+- **NOT a new feature — a delivery/log entry** for the previous P3/P4/P5/P8-lite work. (Correction of
+  a mistake made moments ago: this entry was first written *inside* the previous session's entry,
+  which violates prepend-only; reverted, then written properly as its own entry here.)
+- Verification: CI run **43746448959 → success** on commit `b6a2da9` — steps: Set up job / Checkout /
+  JDK 17 / Android SDK / Gradle / **Run unit tests** / **Build debug APK** / Upload test report /
+  **Upload APK**, all green. Unit tests: **17 pass** (same result re-verified on VPS).
+- Shipped APK: downloaded CI artifact `tradeview-debug-apk` and copied to the phone as
+  `/storage/emulated/0/Download/TradeView-v0.2.0-debug.apk` (19,223,616 bytes debug build).
+  `gh run download` from the phone is slow (~2–4 min) — a 300 s foreground shell timed out once
+  at the very end; rerun in background to completion, then verified size after copy.
+- Docs-only commits skip CI (`paths-ignore` covers `**.md` and `NOTICE`).
+- Pending items: user on-device confirmation of the v0.2.0 APK, then P2 (live Binance REST +
+  WebSocket replacing `SampleSeries`), then P6 drawings, P7 forex, P9 polish.
+- Notes for next agent: nothing new — all technical notes in the entry below still apply.
+
 ## Session — 2026-11-15 — P3/P4/P5/P8-lite: TradingView-style shell, timeframes, bar replay, indicators, Pine-lite
 - Agent/Tool: OpenCode · branch `main`
 - Feature: the four things the user asked for, built as one coherent chart-core release:
