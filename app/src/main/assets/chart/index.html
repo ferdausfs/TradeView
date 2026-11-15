@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>TradeView Chart</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #131722;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #chart {
+      position: absolute;
+      inset: 0;
+      touch-action: none;
+      overscroll-behavior: contain;
+    }
+    .lwc-attribution {
+      position: absolute;
+      left: 6px;
+      bottom: 4px;
+      font: 11px -apple-system, Roboto, sans-serif;
+      color: #787878;
+      z-index: 5;
+    }
+    .lwc-attribution a { color: #787878; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+  <div class="lwc-attribution"><a href="https://www.tradingview.com/" rel="noopener">TradingView</a></div>
+
+  <script src="lightweight-charts-5.3.0.standalone.production.js"></script>
+  <script src="chart.js"></script>
+</body>
+</html>

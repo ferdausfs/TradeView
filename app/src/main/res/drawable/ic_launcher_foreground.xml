@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple candlestick glyph for the launcher icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- up candle (teal) -->
+    <path
+        android:fillColor="#26A69A"
+        android:pathData="M34,30 h4 v10 h-4 z M31,40 h10 v26 h-10 z M34,66 h4 v12 h-4 z" />
+    <!-- down candle (red) -->
+    <path
+        android:fillColor="#EF5350"
+        android:pathData="M70,28 h4 v8 h-4 z M67,36 h10 v22 h-10 z M70,58 h4 v16 h-4 z" />
+    <!-- accent line -->
+    <path
+        android:strokeColor="#2962FF"
+        android:strokeWidth="3"
+        android:pathData="M22,54 L40,44 L56,50 L86,30" />
+</vector>
