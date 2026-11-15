@@ -2,6 +2,21 @@
 
 > Continuity file. Entries are **prepended** (newest first) and never deleted.
 
+## Session — 2026-11-15 — CI fix (APK artifact live)
+- Agent/Tool: OpenCode · branch `main` · commit b3d4291
+- Feature (one only): CI-only fix so the APK actually builds on GitHub Actions
+- What changed: `.github/workflows/android.yml` — `android-actions/setup-android@v3` was failing with
+  `Failed to find package 'tools'` + exit 1. The action's default `packages` input still requests the
+  retired `tools` package. Now pinned explicitly:
+  `platform-tools platforms;android-36 build-tools;36.0.0`, licenses accepted, license log silenced.
+- Verification: GitHub Actions run **43737177428 → success** (every step green, including "Upload APK").
+  Artifact `tradeview-debug-apk` downloaded (11,996,784 bytes, sha256 f39441ae…61c38) and unzipped:
+  contains AndroidManifest, classes.dex, assets/chart/{index.html, chart.js, lightweight-charts 5.3.0, NOTICE}.
+  APK copied to /storage/emulated/0/Download/TradeView-v0.1.0-debug.apk on the phone.
+- Touched files: .github/workflows/android.yml, AGENT_LOG.md
+- Pending items: P2 crypto data (Binance REST history + WebSocket live candle).
+- Notes for next agent: CI is proven end-to-end; push to `main` and watch `gh run list`.
+
 ## Session — 2026-11-15 — P0 + P1 (skeleton + CI + chart in WebView)
 - Agent/Tool: OpenCode · branch `main`
 - Feature (one only): P0 skeleton & CI, plus P1 chart-in-WebView (built together so the first
