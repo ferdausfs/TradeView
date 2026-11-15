@@ -3,18 +3,17 @@ package com.ferdausfs.tradeview.bridge
 import android.webkit.JavascriptInterface
 
 /**
- * The single JS → Kotlin surface. Keep it thin: everything that is not chart rendering
- * lives on the Kotlin side (spec §2), so this interface only relays events.
+ * The single JS → Kotlin surface. Keep it thin: only events, no logic (spec §2).
  */
 class JsBridge(
     private val onCrosshair: (time: Long, price: Double) -> Unit,
-    private val onReady: () -> Unit,
-    private val onVisibleRange: (from: Long, to: Long) -> Unit,
+    private val crosshairGone: () -> Unit,
+    private val ready: () -> Unit,
 ) {
 
     @JavascriptInterface
     fun onChartReady() {
-        onReady()
+        ready()
     }
 
     @JavascriptInterface
@@ -24,7 +23,7 @@ class JsBridge(
     }
 
     @JavascriptInterface
-    fun onVisibleRangeChange(from: Double, to: Double) {
-        onVisibleRange(from.toLong(), to.toLong())
+    fun onCrosshairGone() {
+        crosshairGone()
     }
 }

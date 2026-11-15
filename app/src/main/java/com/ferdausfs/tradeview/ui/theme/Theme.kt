@@ -7,8 +7,8 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Chart-token palette from the TradeView spec (§4). The chart canvas itself is rendered
-// by lightweight-charts, so these stay in sync with assets/chart/chart.js.
+// Chart-token palette from the TradeView spec (§4). The chart canvas is rendered by
+// lightweight-charts, so these stay in sync with assets/chart/chart.js.
 val TvBackground = Color(0xFF131722)
 val TvPanel = Color(0xFF1E222D)
 val TvGrid = Color(0xFF2A2E39)
