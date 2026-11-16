@@ -20,6 +20,12 @@ enum class Feed {
     /** TwelveData REST when an API key is configured (optional forex upgrade). */
     TWELVEDATA,
 
+    /** TraderMade — forex specialist with a generous free tier. */
+    TRADERMADE,
+
+    /** Alpha Vantage — small free tier (25/day), used as an extra failover step. */
+    ALPHAVANTAGE,
+
     /** Deterministic seeded generator; used until real data is available. */
     DEMO,
 }

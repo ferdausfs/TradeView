@@ -32,27 +32,39 @@ class HistoryRepository(
                 Feed.BINANCE -> fetchBinance(instrument.symbol, timeframe, limit)
                 Feed.YAHOO -> yahoo.candles(instrument.symbol, timeframe, limit)
                 Feed.TWELVEDATA -> fetchTwelveData(instrument.symbol, timeframe, limit)
+                Feed.TRADERMADE -> traderMade.candles(instrument.symbol, Settings.traderMadeKey(), timeframe, limit)
+                Feed.ALPHAVANTAGE -> alphaVantage.candles(instrument.symbol, Settings.alphaVantageKey(), timeframe, limit)
                 Feed.DEMO -> throw IOException("no live source configured")
             }
         }
 
     /**
-     * Crypto is always Binance. Forex prefers Yahoo (free intraday, no key); the TwelveData key
-     * is still honoured when set (some traders want it), otherwise Yahoo, then ECB daily, then demo.
+     * Crypto is always Binance. Forex walks the configured chain: TwelveData -> TraderMade ->
+     * Alpha Vantage (keys, best first) -> Yahoo (no key) -> ECB daily -> demo. Used by the live
+     * poll to know which source to hit; the full chain is re-tried inside load().
      */
     fun effectiveFeed(instrument: Instrument): Feed = when {
         instrument.feed == Feed.BINANCE -> Feed.BINANCE
-        instrument.feed == Feed.TWELVEDATA && Settings.twelveDataKey().isNotEmpty() -> Feed.TWELVEDATA
-        instrument.market == Market.FOREX -> Feed.YAHOO
-        else -> Feed.DEMO
+        instrument.market != Market.FOREX -> Feed.DEMO
+        else -> primaryForexFeed()
+    }
+
+    private fun primaryForexFeed(): Feed = when {
+        Settings.twelveDataKey().isNotEmpty() -> Feed.TWELVEDATA
+        Settings.traderMadeKey().isNotEmpty() -> Feed.TRADERMADE
+        Settings.alphaVantageKey().isNotEmpty() -> Feed.ALPHAVANTAGE
+        else -> Feed.YAHOO
     }
 
     private val frankfurter by lazy { FrankfurterSource(client) }
     private val yahoo by lazy { YahooSource(client) }
+    private val traderMade by lazy { TraderMadeSource(client) }
+    private val alphaVantage by lazy { AlphaVantageSource(client) }
 
     /**
-     * History with graceful degradation: live source -> cache -> demo. Never throws, so the chart
-     * always has something to draw (important on a flaky mobile connection).
+     * History with graceful degradation. Forex walks every configured source in order (keys first,
+     * then the free Yahoo), then ECB daily for D1, then demo. Never throws, so the chart always
+     * has something to draw (important on a flaky mobile connection).
      */
     suspend fun load(
         instrument: Instrument,
@@ -60,16 +72,14 @@ class HistoryRepository(
         limit: Int = 720,
         allowLive: Boolean = true,
     ): Source {
-        // 1. live
-        if (allowLive && effectiveFeed(instrument) != Feed.DEMO) {
-            runCatching { fetch(instrument, timeframe, limit) }.getOrNull()?.let { candles ->
-                if (candles.isNotEmpty()) return Source(candles, kind = liveKind(instrument))
+        // 1. live: crypto = Binance; forex = every configured source until one answers.
+        if (allowLive && instrument.market == Market.CRYPTO && instrument.feed == Feed.BINANCE) {
+            runCatching { fetchBinance(instrument.symbol, timeframe, limit) }.getOrNull()?.let {
+                if (it.isNotEmpty()) return Source(it, kind = "Binance")
             }
-            // TwelveData paid key down? Yahoo is still free — try it before giving up.
-            if (effectiveFeed(instrument) == Feed.TWELVEDATA) {
-                runCatching { yahoo.candles(instrument.symbol, timeframe, limit) }.getOrNull()
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let { return Source(it, kind = "Yahoo") }
+        } else if (allowLive && instrument.market == Market.FOREX) {
+            forexChain(instrument, timeframe, limit).forEach { (kind, attempt) ->
+                runCatching { attempt() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return Source(it, kind = kind) }
             }
         }
         // 2. forex daily: free ECB reference rates (open/high/low are synthetic but real closes)
@@ -82,13 +92,23 @@ class HistoryRepository(
         return Source(demo(instrument, timeframe, limit), kind = "Demo data")
     }
 
-    private fun liveKind(instrument: Instrument): String =
-        when (effectiveFeed(instrument)) {
-            Feed.BINANCE -> "Binance"
-            Feed.YAHOO -> "Yahoo"
-            Feed.TWELVEDATA -> "TwelveData"
-            else -> "Demo"
+    /** Configured forex sources in priority order; Yahoo last because it needs no key. */
+    private fun forexChain(
+        instrument: Instrument,
+        timeframe: Timeframe,
+        limit: Int,
+    ): List<Pair<String, suspend () -> List<Candle>>> = buildList {
+        Settings.twelveDataKey().takeIf { it.isNotEmpty() }?.let {
+            add("TwelveData" to suspend { fetchTwelveData(instrument.symbol, timeframe, limit) })
         }
+        Settings.traderMadeKey().takeIf { it.isNotEmpty() }?.let {
+            add("TraderMade" to suspend { traderMade.candles(instrument.symbol, it, timeframe, limit) })
+        }
+        Settings.alphaVantageKey().takeIf { it.isNotEmpty() }?.let {
+            add("AlphaVantage" to suspend { alphaVantage.candles(instrument.symbol, it, timeframe, limit) })
+        }
+        add("Yahoo" to suspend { yahoo.candles(instrument.symbol, timeframe, limit) })
+    }
 
     private fun demo(instrument: Instrument, timeframe: Timeframe, count: Int): List<Candle> =
         com.ferdausfs.tradeview.domain.SampleSeries.generate(instrument, timeframe, count)

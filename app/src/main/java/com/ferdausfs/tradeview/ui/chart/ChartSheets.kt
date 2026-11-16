@@ -515,12 +515,12 @@ fun IndicatorSettingsSheet(
 @Composable
 fun SettingsSheet(
     live: Boolean,
-    twelveDataKey: String,
+    keys: Map<String, String>,
     drawingCount: Int,
     logScale: Boolean,
     onLive: (Boolean) -> Unit,
     onLogScale: (Boolean) -> Unit,
-    onKeyChange: (String) -> Unit,
+    onKeyChange: (provider: String, key: String) -> Unit,
     onClearDrawings: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -529,38 +529,31 @@ fun SettingsSheet(
         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
             ToggleRow("Live data", "Binance stream for crypto · poll for FX", live) { onLive(it) }
             ToggleRow("Logarithmic scale", "Price axis in log steps", logScale) { onLogScale(it) }
+            SectionLabel("Data providers")
             Text(
-                "TwelveData API key (optional, unlocks intraday forex)",
-                color = t.textMuted,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .background(t.background, RoundedCornerShape(8.dp))
-                    .border(1.dp, t.stroke, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 11.dp, vertical = 10.dp),
-            ) {
-                BasicTextField(
-                    value = twelveDataKey,
-                    onValueChange = onKeyChange,
-                    singleLine = true,
-                    textStyle = TextStyle(color = t.text, fontSize = 13.sp, fontFamily = FontFamily.Monospace),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(t.accent),
-                    modifier = Modifier.fillMaxWidth(),
-                    decorationBox = { inner ->
-                        if (twelveDataKey.isEmpty()) Text("paste key…", color = t.textMuted, fontSize = 13.sp)
-                        inner()
-                    },
-                )
-            }
-            Text(
-                "Without a key, forex uses ECB daily reference rates plus a simulated intraday series.",
+                "Add any keys you have — they fail over in order, then Yahoo (free, no key), " +
+                    "then ECB daily. Crypto always uses Binance.",
                 color = t.textMuted,
                 fontSize = 10.sp,
-                modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 6.dp),
+            )
+            KeyField(
+                label = "TwelveData",
+                hint = "free: 800 requests/day · intraday forex",
+                value = keys["twelvedata"].orEmpty(),
+                onChange = { onKeyChange("twelvedata", it) },
+            )
+            KeyField(
+                label = "TraderMade",
+                hint = "free tier · forex specialist, true intraday OHLC",
+                value = keys["tradermade"].orEmpty(),
+                onChange = { onKeyChange("tradermade", it) },
+            )
+            KeyField(
+                label = "Alpha Vantage",
+                hint = "free: 25 requests/day · extra backup",
+                value = keys["alphavantage"].orEmpty(),
+                onChange = { onKeyChange("alphavantage", it) },
             )
             if (drawingCount > 0) {
                 TvSecondaryButton(
@@ -570,6 +563,41 @@ fun SettingsSheet(
                 )
             }
             Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+@Composable
+private fun KeyField(label: String, hint: String, value: String, onChange: (String) -> Unit) {
+    val t = LocalTokens.current
+    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp)) {
+        Text(
+            label,
+            color = t.text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 3.dp),
+        )
+        Text(hint, color = t.textMuted, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(t.background, RoundedCornerShape(8.dp))
+                .border(1.dp, t.stroke, RoundedCornerShape(8.dp))
+                .padding(horizontal = 11.dp, vertical = 10.dp),
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onChange,
+                singleLine = true,
+                textStyle = TextStyle(color = t.text, fontSize = 13.sp, fontFamily = FontFamily.Monospace),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(t.accent),
+                modifier = Modifier.fillMaxWidth(),
+                decorationBox = { inner ->
+                    if (value.isEmpty()) Text("paste key…", color = t.textMuted, fontSize = 13.sp)
+                    inner()
+                },
+            )
         }
     }
 }

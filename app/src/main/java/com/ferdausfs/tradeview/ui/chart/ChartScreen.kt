@@ -267,12 +267,16 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
         Scrim(onClick = { vm.toggleSettings(false) }) {
             SettingsSheet(
                 live = state.live,
-                twelveDataKey = Settings.twelveDataKey(),
+                keys = mapOf(
+                    "twelvedata" to Settings.twelveDataKey(),
+                    "tradermade" to Settings.traderMadeKey(),
+                    "alphavantage" to Settings.alphaVantageKey(),
+                ),
                 drawingCount = state.drawings.size,
                 logScale = logScale,
                 onLive = vm::setLive,
                 onLogScale = { logScale = it; webView.setLogScale(it) },
-                onKeyChange = vm::setTwelveDataKey,
+                onKeyChange = vm::setApiKey,
                 onClearDrawings = vm::clearDrawings,
                 onClose = { vm.toggleSettings(false) },
             )

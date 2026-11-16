@@ -2,6 +2,28 @@
 
 > Continuity file. Entries are **prepended** (newest first) and never deleted.
 
+## Session — 2026-11-16 — P2c: multi-provider data keys (TwelveData + TraderMade + Alpha Vantage)
+- Agent/Tool: OpenCode · branch `main`
+- User asked (verbatim intent): they want to use MANY data APIs ("onek gulo api"), low monthly cost.
+- **Multi-provider failover chain for forex (data/):**
+  1. `TraderMadeSource.kt` (new) — forex specialist; timeseries endpoint, minute(1/5/15),
+     hourly(1/4), daily; minute data max 2-day window per call (API rule), start/end formatted
+     "yyyy-MM-dd-HH:MM" for intraday. `date` field parsed as UTC with 3 accepted shapes.
+  2. `AlphaVantageSource.kt` (new) — FX_INTRADAY (1/5/15/60min) + FX_DAILY, outputsize=full;
+     H4 aggregated from 60min; "Information"/"Note"/"Error Message" envelopes treated as failures.
+     Daily stamps are date-only ("yyyy-MM-dd") — recovered via LocalDate.parse fallback.
+  3. `Settings.kt` — per-provider keys (`key_twelvedata`, `key_tradermade`, `key_alphavantage`)
+     with `configuredKeys()`; old `td_key` pref still read for backward compat.
+  4. `Feed` enum grew TRADERMADE + ALPHAVANTAGE. `HistoryRepository.load()` now walks the forex
+     chain: TwelveData → TraderMade → AlphaVantage → Yahoo (no key) → ECB daily → demo, returning
+     the kind label of whichever source actually answered. `effectiveFeed` = first keyed provider
+     (poll target); crypto stays Binance-only.
+  5. `SettingsSheet` redesigned: "Data providers" section with three key fields + hints of each
+     free tier (TwelveData 800/day, TraderMade free tier, AlphaVantage 25/day). `setApiKey(provider,
+     key)` in the ViewModel reloads history on any key change.
+- Verification: VPS compile + tests + assemble → BUILD SUCCESSFUL, 21 tests pass, APK 19,922,767 B.
+- Pending: user pastes real keys on-device; watch CI for this push; then P7/P9, icon, release build.
+
 ## Session — 2026-11-16 — P2b+P5b: Yahoo forex data, replay-by-date, TradingView chrome
 - Agent/Tool: OpenCode · branch `main`
 - User asked (verbatim intent): make the design look like the TradingView screenshots they sent,

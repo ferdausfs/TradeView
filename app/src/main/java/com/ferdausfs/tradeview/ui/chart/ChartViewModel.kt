@@ -170,7 +170,7 @@ class ChartViewModel : ViewModel() {
                     applyLiveCandle(update.candle, finalized = update.closed)
                 }
             }
-            Feed.TWELVEDATA, Feed.YAHOO -> pollJob = viewModelScope.launch {
+            else -> pollJob = viewModelScope.launch {
                 while (isActive) {
                     delay(45_000)
                     runCatching { history.fetch(instrument, tf, limit = 8) }.getOrNull()
@@ -178,7 +178,6 @@ class ChartViewModel : ViewModel() {
                         ?.let { applyLiveCandle(it, finalized = false) }
                 }
             }
-            Feed.DEMO -> Unit // demo series has no live source; static until refreshed
         }
     }
 
@@ -555,8 +554,13 @@ class ChartViewModel : ViewModel() {
     fun isDrawTool(tool: DrawKind): Boolean = drawModel.hasTool(tool)
 
 
-    fun setTwelveDataKey(key: String) {
-        Settings.setTwelveDataKey(key)
+    /** Any provider key change may unlock a better source — reload. */
+    fun setApiKey(provider: String, key: String) {
+        when (provider) {
+            "twelvedata" -> Settings.setTwelveDataKey(key)
+            "tradermade" -> Settings.setTraderMadeKey(key)
+            "alphavantage" -> Settings.setAlphaVantageKey(key)
+        }
         loadHistory()
     }
 
