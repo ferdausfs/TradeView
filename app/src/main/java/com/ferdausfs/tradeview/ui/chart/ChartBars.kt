@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
@@ -38,8 +36,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SquareFoot
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -449,8 +451,31 @@ fun ReplayBar(
                 )
             }
 
-            // Date jump — TradingView-style: start replay from a specific day (YYYY-MM-DD).
+            // Date jump — tap the field, pick a day in the calendar, replay arms automatically.
             var dayText by remember { mutableStateOf("") }
+            var showPicker by remember { mutableStateOf(false) }
+            if (showPicker) {
+                val pickerState = rememberDatePickerState()
+                DatePickerDialog(
+                    onDismissRequest = { showPicker = false },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            pickerState.selectedDateMillis?.let { ms ->
+                                val day = java.time.Instant.ofEpochMilli(ms)
+                                    .atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
+                                dayText = day
+                                onGoToDate(day)
+                            }
+                            showPicker = false
+                        }) { Text("OK") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPicker = false }) { Text("Cancel") }
+                    },
+                ) {
+                    DatePicker(state = pickerState)
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -465,40 +490,24 @@ fun ReplayBar(
                     letterSpacing = 0.5.sp,
                 )
                 Spacer(Modifier.width(7.dp))
-                BasicTextField(
-                    value = dayText,
-                    onValueChange = { if (it.length <= 10) dayText = it.filter { ch -> ch.isDigit() || ch == '-' } },
-                    singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = t.text,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                    keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword),
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .background(t.panelElevated, RoundedCornerShape(6.dp))
                         .border(1.dp, t.stroke, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 9.dp, vertical = 7.dp),
-                    decorationBox = { inner ->
-                        if (dayText.isEmpty()) {
-                            Text("YYYY-MM-DD", color = t.textMuted.copy(alpha = 0.6f), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-                        }
-                        inner()
-                    },
-                )
-                Spacer(Modifier.width(7.dp))
-                Box(
-                    modifier = Modifier
-                        .background(t.accent, RoundedCornerShape(6.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = { if (dayText.isNotBlank()) onGoToDate(dayText) },
+                            onClick = { showPicker = true },
                         )
-                        .padding(horizontal = 13.dp, vertical = 7.dp),
+                        .padding(horizontal = 9.dp, vertical = 8.dp),
                 ) {
-                    Text("GO", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (dayText.isEmpty()) "\uD83D\uDCC5  Pick a date" else "\uD83D\uDCC5  $dayText",
+                        color = if (dayText.isEmpty()) t.textMuted else t.text,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                    )
                 }
                 if (barTime != null) {
                     Spacer(Modifier.width(9.dp))

@@ -265,15 +265,45 @@
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(function () { renderDrawings(); });
 
-  container.addEventListener('click', function (ev) {
+  // Lightweight-charts consumes touch gestures and suppresses synthetic `click` on mobile
+  // WebViews. Detect a genuine tap from pointer/touch positions: short press, no drag.
+  var press = null;
+  var lastTapAt = 0;
+  function handleTap(clientX, clientY) {
     if (!window.AndroidBridge || !window.AndroidBridge.onTap) return;
+    var now = Date.now();
+    if (now - lastTapAt < 350) return; // ignore synthesized duplicate events
+    lastTapAt = now;
     var rect = container.getBoundingClientRect();
-    var x = ev.clientX - rect.left;
-    var y = ev.clientY - rect.top;
+    var x = clientX - rect.left;
+    var y = clientY - rect.top;
     var time = chart.timeScale().coordinateToTime(x);
     var price = candles.coordinateToPrice(y);
-    if (time === null || time === undefined || price === null) return;
+    if (time === null || time === undefined || price === null || price === undefined) return;
     window.AndroidBridge.onTap(Number(time), price);
+  }
+  function tapFromEvent(ev) {
+    if (!press) return;
+    var dx = ev.clientX - press.x;
+    var dy = ev.clientY - press.y;
+    var moved = Math.sqrt(dx * dx + dy * dy);
+    var held = Date.now() - press.t;
+    press = null;
+    if (moved <= 12 && held <= 700) handleTap(ev.clientX, ev.clientY);
+  }
+  container.addEventListener('pointerdown', function (ev) {
+    press = { x: ev.clientX, y: ev.clientY, t: Date.now() };
+  });
+  container.addEventListener('pointerup', tapFromEvent);
+  container.addEventListener('pointercancel', function () { press = null; });
+  // Fallback for older WebViews that do not dispatch PointerEvents.
+  container.addEventListener('touchend', function (ev) {
+    if (!ev.changedTouches || !ev.changedTouches.length) return;
+    var p = ev.changedTouches[0];
+    var dx = press ? p.clientX - press.x : 99;
+    var dy = press ? p.clientY - press.y : 99;
+    if (Math.sqrt(dx * dx + dy * dy) <= 12) handleTap(p.clientX, p.clientY);
+    press = null;
   });
 
   function notifyReady() {

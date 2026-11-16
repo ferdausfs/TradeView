@@ -21,6 +21,7 @@ import com.ferdausfs.tradeview.domain.model.DrawKind
 import com.ferdausfs.tradeview.domain.model.Drawing
 import com.ferdausfs.tradeview.domain.model.Feed
 import com.ferdausfs.tradeview.domain.model.Instrument
+import com.ferdausfs.tradeview.domain.model.Market
 import com.ferdausfs.tradeview.domain.model.Timeframe
 import com.ferdausfs.tradeview.domain.model.toJson
 import com.ferdausfs.tradeview.domain.model.toJsonArray
@@ -94,6 +95,7 @@ class ChartViewModel : ViewModel() {
     private var replayJob: Job? = null
     private var streamJob: Job? = null
     private var pollJob: Job? = null
+    private var loadJob: Job? = null
     private var prefs = HashMap<String, String>()
 
     init {
@@ -103,14 +105,23 @@ class ChartViewModel : ViewModel() {
 
     // ---------------------------------------------------------------- data
 
-    fun loadHistory() {
+    fun loadHistory(announce: Boolean = false) {
+        // A key change while a previous request is in flight must not let the older (Yahoo)
+        // result arrive last and overwrite the source we just selected.
+        loadJob?.cancel()
         val s = _state.value
         _state.update { it.copy(loading = true) }
-        viewModelScope.launch {
+        loadJob = viewModelScope.launch {
             val result = history.load(s.instrument, s.timeframe, limit = if (s.timeframe == Timeframe.D1) 500 else 720)
             full = result.candles
             if (replay.isActive) replay.arm(Aggregator.aggregate(full, s.timeframe), replay.snapshot().visibleCount)
-            _state.update { it.copy(sourceLabel = result.kind, loading = false) }
+            _state.update {
+                it.copy(
+                    sourceLabel = result.kind,
+                    loading = false,
+                    toast = if (announce && s.instrument.market == Market.FOREX) "Data source: ${result.kind}" else it.toast,
+                )
+            }
             rebuild()
             startLiveFeed()
         }
@@ -554,15 +565,16 @@ class ChartViewModel : ViewModel() {
     fun isDrawTool(tool: DrawKind): Boolean = drawModel.hasTool(tool)
 
 
-    /** Any provider key change may unlock a better source — reload. */
+    /** Saving a key is instant; the user hits "Apply keys" to reload from the new source. */
     fun setApiKey(provider: String, key: String) {
         when (provider) {
             "twelvedata" -> Settings.setTwelveDataKey(key)
             "tradermade" -> Settings.setTraderMadeKey(key)
             "alphavantage" -> Settings.setAlphaVantageKey(key)
         }
-        loadHistory()
     }
+
+    fun applyKeys() = loadHistory(announce = true)
 
     // ---------------------------------------------------------------- bridge payloads
 

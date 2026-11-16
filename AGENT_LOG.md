@@ -2,6 +2,29 @@
 
 > Continuity file. Entries are **prepended** (newest first) and never deleted.
 
+## Session — 2026-11-16 — P2d+P5c: fix key chain race, calendar replay, drawing taps, smoother UI
+- Agent/Tool: OpenCode · branch `main`
+- User reported: added API keys show no effect (chart still loads Yahoo); replay date should be a
+  calendar popup; drawing on chart doesn't work; UI should be smoother/more like TradingView.
+- **Root causes + fixes:**
+  1. API key race: `setApiKey()` reloaded history on EVERY typed character; several concurrent
+     `load()` coroutines raced and the older Yahoo result often arrived last, overwriting the keyed
+     source. Fixed: `loadJob` is cancelled before each new load; key fields now save instantly but
+     reload happens only on the new **"Apply keys & reload data"** button. After apply, a toast
+     shows the winning source ("Data source: TwelveData"/etc.) plus the existing source chip.
+  2. Drawing taps: lightweight-charts consumes touch gestures and suppresses synthetic `click` in
+     Android WebView, so the JS tap handler never fired. `chart.js` now uses `pointerdown/up` with a
+     12px/700ms tap threshold (plus a `touchend` fallback for old WebViews and a 350ms dedupe),
+     so pans/zooms never create shapes but taps do.
+  3. Replay date: replaced the typed YYYY-MM-DD field + GO button with a Material3
+     **DatePickerDialog** — tap "📅 Pick a date", choose the day, OK arms replay from that date.
+  4. Smoothness: all bottom sheets now slide up with a 220ms `Animatable` offset; removed per-key
+     network storms (also avoids burning free-tier credits).
+- Verification: VPS compile + `:app:testDebugUnitTest :app:assembleDebug` → BUILD SUCCESSFUL,
+  21 tests pass, APK 19,923,295 B. CI watched after push; APK delivered as v0.6.0.
+- Pending: on-device confirmation of drawing taps, calendar replay, and TwelveData/TraderMade source
+  chip after pasting a real key. Then P7/P9, icon, release build.
+
 ## Session — 2026-11-16 — P2c: multi-provider data keys (TwelveData + TraderMade + Alpha Vantage)
 - Agent/Tool: OpenCode · branch `main`
 - User asked (verbatim intent): they want to use MANY data APIs ("onek gulo api"), low monthly cost.

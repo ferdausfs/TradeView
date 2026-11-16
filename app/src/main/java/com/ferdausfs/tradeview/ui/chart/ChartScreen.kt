@@ -277,6 +277,7 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
                 onLive = vm::setLive,
                 onLogScale = { logScale = it; webView.setLogScale(it) },
                 onKeyChange = vm::setApiKey,
+                onApplyKeys = vm::applyKeys,
                 onClearDrawings = vm::clearDrawings,
                 onClose = { vm.toggleSettings(false) },
             )

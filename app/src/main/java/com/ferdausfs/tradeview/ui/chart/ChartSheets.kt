@@ -1,5 +1,7 @@
 package com.ferdausfs.tradeview.ui.chart
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +37,7 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,9 +69,12 @@ fun SheetScaffold(
     content: @Composable () -> Unit,
 ) {
     val t = LocalTokens.current
+    val rise = remember { Animatable(36f) }
+    LaunchedEffect(Unit) { rise.animateTo(0f, animationSpec = tween(220)) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .offset(y = rise.value.dp)
             .heightIn(max = 600.dp)
             .background(t.panel, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .border(1.dp, t.stroke, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
@@ -521,6 +528,7 @@ fun SettingsSheet(
     onLive: (Boolean) -> Unit,
     onLogScale: (Boolean) -> Unit,
     onKeyChange: (provider: String, key: String) -> Unit,
+    onApplyKeys: () -> Unit,
     onClearDrawings: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -554,6 +562,18 @@ fun SettingsSheet(
                 hint = "free: 25 requests/day · extra backup",
                 value = keys["alphavantage"].orEmpty(),
                 onChange = { onKeyChange("alphavantage", it) },
+            )
+            TvPrimaryButton(
+                "Apply keys & reload data",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                onClick = onApplyKeys,
+            )
+            Text(
+                "After applying, the source chip above the chart shows which API answered " +
+                    "(TwelveData / TraderMade / AlphaVantage / Yahoo).",
+                color = t.textMuted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 2.dp),
             )
             if (drawingCount > 0) {
                 TvSecondaryButton(
