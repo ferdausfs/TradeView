@@ -7,6 +7,8 @@ import com.ferdausfs.tradeview.data.HistoryRepository
 import com.ferdausfs.tradeview.data.Instruments
 import com.ferdausfs.tradeview.data.Settings
 import com.ferdausfs.tradeview.data.TickerStream
+import com.ferdausfs.tradeview.data.YahooSource
+import com.ferdausfs.tradeview.data.toTicker
 import com.ferdausfs.tradeview.domain.Aggregator
 import com.ferdausfs.tradeview.domain.DrawModel
 import com.ferdausfs.tradeview.domain.Indicators
@@ -68,6 +70,7 @@ class ChartViewModel : ViewModel() {
     private val history = HistoryRepository()
     private val klines = BinanceKlineStream()
     private val ticker = TickerStream()
+    private val yahoo = YahooSource()
     private val drawModel = DrawModel()
 
     private val _state = MutableStateFlow(ChartUiState())
@@ -167,7 +170,7 @@ class ChartViewModel : ViewModel() {
                     applyLiveCandle(update.candle, finalized = update.closed)
                 }
             }
-            Feed.TWELVEDATA -> pollJob = viewModelScope.launch {
+            Feed.TWELVEDATA, Feed.YAHOO -> pollJob = viewModelScope.launch {
                 while (isActive) {
                     delay(45_000)
                     runCatching { history.fetch(instrument, tf, limit = 8) }.getOrNull()
@@ -207,14 +210,18 @@ class ChartViewModel : ViewModel() {
         if (finalized) pushIndicators()
     }
 
-    /** Quote strip data (crypto only; forex shows the last close instead). */
+    /** Quote strip data: crypto via Binance ticker, forex via Yahoo spark (single batched call). */
     fun refreshQuote() {
         val instrument = _state.value.instrument
-        if (history.effectiveFeed(instrument) != Feed.BINANCE) return
+        if (history.effectiveFeed(instrument) == Feed.DEMO) return
         viewModelScope.launch {
-            ticker.snapshot(listOf(instrument))[instrument.id]?.let { q ->
-                _state.update { it.copy(quote = q) }
+            val eff = history.effectiveFeed(instrument)
+            val q = if (eff == Feed.BINANCE) {
+                ticker.snapshot(listOf(instrument))[instrument.id]
+            } else {
+                yahoo.quotes(listOf(instrument))[instrument.id]?.toTicker()
             }
+            q?.let { q2 -> _state.update { st -> st.copy(quote = q2) } }
         }
     }
 
@@ -425,6 +432,44 @@ class ChartViewModel : ViewModel() {
                 replayTotal = base.size,
                 tool = DrawKind.Cursor,
                 toast = null,
+            )
+        }
+        rebuild()
+        startTicker()
+    }
+
+    /**
+     * TradingView-style replay: the trader types a day ("2025-03-14") and the chart arms with
+     * history up to that date — every bar after it is unknown until played forward.
+     */
+    fun startReplayFromDay(day: String) {
+        val base = Aggregator.aggregate(full, _state.value.timeframe)
+        val target = runCatching {
+            java.time.LocalDate.parse(day.trim()).toEpochDay() * 86_400L
+        }.getOrNull()
+        if (base.size < 30 || target == null) {
+            _state.update { it.copy(toast = if (target == null) "Date format: YYYY-MM-DD" else "Not enough history") }
+            return
+        }
+        val index = base.indexOfFirst { it.time >= target }
+        val start = when {
+            index < 0 -> base.size // date is after all bars: replay from the end
+            else -> index
+        }.coerceIn(10, base.size)
+        if (start <= 10) {
+            _state.update { it.copy(toast = "No data before that date") }
+            return
+        }
+        replay.arm(base, start)
+        stopLiveFeed()
+        _state.update {
+            it.copy(
+                replayActive = true,
+                replayPlaying = false,
+                replayIndex = start,
+                replayTotal = base.size,
+                tool = DrawKind.Cursor,
+                toast = "Replay from $day",
             )
         }
         rebuild()

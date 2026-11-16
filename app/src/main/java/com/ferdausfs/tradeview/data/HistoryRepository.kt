@@ -30,18 +30,25 @@ class HistoryRepository(
         withContext(Dispatchers.IO) {
             when (effectiveFeed(instrument)) {
                 Feed.BINANCE -> fetchBinance(instrument.symbol, timeframe, limit)
+                Feed.YAHOO -> yahoo.candles(instrument.symbol, timeframe, limit)
                 Feed.TWELVEDATA -> fetchTwelveData(instrument.symbol, timeframe, limit)
                 Feed.DEMO -> throw IOException("no live source configured")
             }
         }
 
+    /**
+     * Crypto is always Binance. Forex prefers Yahoo (free intraday, no key); the TwelveData key
+     * is still honoured when set (some traders want it), otherwise Yahoo, then ECB daily, then demo.
+     */
     fun effectiveFeed(instrument: Instrument): Feed = when {
         instrument.feed == Feed.BINANCE -> Feed.BINANCE
         instrument.feed == Feed.TWELVEDATA && Settings.twelveDataKey().isNotEmpty() -> Feed.TWELVEDATA
+        instrument.market == Market.FOREX -> Feed.YAHOO
         else -> Feed.DEMO
     }
 
     private val frankfurter by lazy { FrankfurterSource(client) }
+    private val yahoo by lazy { YahooSource(client) }
 
     /**
      * History with graceful degradation: live source -> cache -> demo. Never throws, so the chart
@@ -58,6 +65,12 @@ class HistoryRepository(
             runCatching { fetch(instrument, timeframe, limit) }.getOrNull()?.let { candles ->
                 if (candles.isNotEmpty()) return Source(candles, kind = liveKind(instrument))
             }
+            // TwelveData paid key down? Yahoo is still free — try it before giving up.
+            if (effectiveFeed(instrument) == Feed.TWELVEDATA) {
+                runCatching { yahoo.candles(instrument.symbol, timeframe, limit) }.getOrNull()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { return Source(it, kind = "Yahoo") }
+            }
         }
         // 2. forex daily: free ECB reference rates (open/high/low are synthetic but real closes)
         if (allowLive && instrument.market == Market.FOREX && timeframe == Timeframe.D1) {
@@ -70,7 +83,12 @@ class HistoryRepository(
     }
 
     private fun liveKind(instrument: Instrument): String =
-        if (instrument.market == Market.CRYPTO) "Binance" else "TwelveData"
+        when (effectiveFeed(instrument)) {
+            Feed.BINANCE -> "Binance"
+            Feed.YAHOO -> "Yahoo"
+            Feed.TWELVEDATA -> "TwelveData"
+            else -> "Demo"
+        }
 
     private fun demo(instrument: Instrument, timeframe: Timeframe, count: Int): List<Candle> =
         com.ferdausfs.tradeview.domain.SampleSeries.generate(instrument, timeframe, count)

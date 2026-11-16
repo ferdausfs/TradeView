@@ -14,7 +14,10 @@ enum class Feed {
     /** Binance spot REST + WebSocket (crypto only). */
     BINANCE,
 
-    /** TwelveData REST when an API key is configured (forex). Null key => demo feed. */
+    /** Yahoo Finance chart API — free intraday forex, no key (forex default). */
+    YAHOO,
+
+    /** TwelveData REST when an API key is configured (optional forex upgrade). */
     TWELVEDATA,
 
     /** Deterministic seeded generator; used until real data is available. */

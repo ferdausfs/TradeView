@@ -1,5 +1,6 @@
 package com.ferdausfs.tradeview.ui.chart
 
+import java.util.Locale
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -21,6 +22,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
@@ -39,7 +42,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -101,16 +106,40 @@ fun ChartTopBar(
                     .padding(end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                MarketBadge(instrument.market)
+                // TradingView-style round symbol avatar.
+                val badgeColor = if (instrument.market == Market.CRYPTO) t.amber else t.accent
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .background(badgeColor.copy(alpha = 0.18f), CircleShape)
+                        .border(1.dp, badgeColor.copy(alpha = 0.55f), CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onSymbolClick,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        instrument.baseCode(),
+                        color = badgeColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.sp,
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
                 Column {
-                    Text(
-                        instrument.symbol,
-                        color = t.text,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.2.sp,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            instrument.symbol,
+                            color = t.text,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.2.sp,
+                        )
+                        Icon(Icons.Filled.ArrowDropDown, contentDescription = "Change symbol", tint = t.textMuted, modifier = Modifier.size(18.dp))
+                    }
                     Text(
                         instrument.name,
                         color = t.textMuted,
@@ -118,7 +147,6 @@ fun ChartTopBar(
                         maxLines = 1,
                     )
                 }
-                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Change symbol", tint = t.textMuted, modifier = Modifier.size(18.dp))
             }
 
             Spacer(Modifier.width(10.dp))
@@ -178,26 +206,6 @@ private fun SourceChip(label: String, streaming: Boolean) {
     }
 }
 
-@Composable
-private fun MarketBadge(market: Market) {
-    val t = LocalTokens.current
-    val color = if (market == Market.CRYPTO) t.amber else t.accent
-    Box(
-        modifier = Modifier
-            .background(color.copy(alpha = 0.16f), RoundedCornerShape(5.dp))
-            .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(5.dp))
-            .padding(horizontal = 5.dp, vertical = 2.dp),
-    ) {
-        Text(
-            if (market == Market.CRYPTO) "CRYPTO" else "FX",
-            color = color,
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.5.sp,
-        )
-    }
-}
-
 /** OHLC readout; follows the crosshair while the finger is down. */
 @Composable
 fun PriceLegend(candle: Candle?, instrument: Instrument) {
@@ -240,23 +248,25 @@ fun TimeframeRow(selected: Timeframe, onSelect: (Timeframe) -> Unit) {
     TvSegmented(options, Timeframe.entries.indexOf(selected).coerceAtLeast(0), compact = true, onSelect = { onSelect(Timeframe.entries[it]) })
 }
 
-/** Horizontal strip of drawing tools (P6) shown next to the timeframe selector. */
+/** TradingView-style floating drawing rail — vertical, semi-transparent, hugging the chart's left edge. */
 @Composable
-fun DrawingToolbar(
+fun DrawingRail(
     tool: DrawKind,
     hasSelection: Boolean,
     hasDrawings: Boolean,
     onTool: (DrawKind) -> Unit,
     onDeleteSelected: () -> Unit,
     onClearAll: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val t = LocalTokens.current
-    Row(
-        modifier = Modifier
-            .background(t.panel.copy(alpha = 0.92f), RoundedCornerShape(9.dp))
-            .border(1.dp, t.stroke, RoundedCornerShape(9.dp))
-            .padding(horizontal = 3.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        modifier = modifier
+            .background(t.panel.copy(alpha = 0.82f), RoundedCornerShape(12.dp))
+            .border(1.dp, t.stroke, RoundedCornerShape(12.dp))
+            .padding(horizontal = 4.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         RailIcon(Icons.AutoMirrored.Filled.TrendingUp, "Cursor", tool == DrawKind.Cursor) { onTool(DrawKind.Cursor) }
         RailIcon(Icons.Filled.LineStyle, "Trend line", tool == DrawKind.TrendLine) { onTool(DrawKind.TrendLine) }
@@ -278,7 +288,10 @@ private fun RailIcon(icon: ImageVector, description: String, active: Boolean = f
     Box(
         modifier = Modifier
             .size(30.dp)
-            .background(if (active) t.accentSoft else Color.Transparent, RoundedCornerShape(7.dp))
+            .background(
+                if (active) t.accent.copy(alpha = 0.22f) else Color.Transparent,
+                CircleShape,
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -371,11 +384,13 @@ fun ReplayBar(
     index: Int,
     total: Int,
     speed: Double,
+    barTime: Long? = null,
     onPlayPause: () -> Unit,
     onStepBack: () -> Unit,
     onStepForward: () -> Unit,
     onSpeed: (Double) -> Unit,
     onExit: () -> Unit,
+    onGoToDate: (String) -> Unit = {},
 ) {
     val t = LocalTokens.current
     AnimatedVisibility(
@@ -433,6 +448,70 @@ fun ReplayBar(
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                 )
             }
+
+            // Date jump — TradingView-style: start replay from a specific day (YYYY-MM-DD).
+            var dayText by remember { mutableStateOf("") }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "FROM",
+                    color = t.textMuted,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                )
+                Spacer(Modifier.width(7.dp))
+                BasicTextField(
+                    value = dayText,
+                    onValueChange = { if (it.length <= 10) dayText = it.filter { ch -> ch.isDigit() || ch == '-' } },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = t.text,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                    keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword),
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(t.panelElevated, RoundedCornerShape(6.dp))
+                        .border(1.dp, t.stroke, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                    decorationBox = { inner ->
+                        if (dayText.isEmpty()) {
+                            Text("YYYY-MM-DD", color = t.textMuted.copy(alpha = 0.6f), fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                        }
+                        inner()
+                    },
+                )
+                Spacer(Modifier.width(7.dp))
+                Box(
+                    modifier = Modifier
+                        .background(t.accent, RoundedCornerShape(6.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { if (dayText.isNotBlank()) onGoToDate(dayText) },
+                        )
+                        .padding(horizontal = 13.dp, vertical = 7.dp),
+                ) {
+                    Text("GO", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                if (barTime != null) {
+                    Spacer(Modifier.width(9.dp))
+                    Text(
+                        java.time.Instant.ofEpochSecond(barTime)
+                            .atZone(java.time.ZoneOffset.UTC)
+                            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                        color = t.textMuted,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            }
         }
     }
 }
@@ -480,3 +559,6 @@ fun TvToast(message: String?) {
         }
     }
 }
+
+/** Two-letter avatar code for the round symbol button ("BTCUSDT" -> "BT"). */
+private fun Instrument.baseCode(): String = symbol.take(2).uppercase(Locale.US)

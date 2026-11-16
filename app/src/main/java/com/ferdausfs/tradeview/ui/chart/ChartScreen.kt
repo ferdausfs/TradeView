@@ -32,6 +32,8 @@ import com.ferdausfs.tradeview.bridge.JsBridge
 import com.ferdausfs.tradeview.data.Instruments
 import com.ferdausfs.tradeview.data.Settings
 import com.ferdausfs.tradeview.data.TickerStream
+import com.ferdausfs.tradeview.data.YahooSource
+import com.ferdausfs.tradeview.data.toTicker
 import com.ferdausfs.tradeview.domain.model.DrawKind
 import com.ferdausfs.tradeview.ui.common.Scrim
 import com.ferdausfs.tradeview.ui.theme.LocalTokens
@@ -92,7 +94,10 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
 
     LaunchedEffect(state.instrument.id, state.timeframe) {
         webView.fitContent()
-        vm.refreshQuote()
+        while (true) {
+            vm.refreshQuote()
+            delay(45_000)
+        }
     }
 
     // Toast auto-dismiss.
@@ -103,12 +108,15 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
         }
     }
 
-    // Quote polling while the browser sheet is open.
+    // Quote polling while the browser sheet is open: crypto from Binance, forex from Yahoo.
     LaunchedEffect(state.browserOpen) {
         if (!state.browserOpen) return@LaunchedEffect
+        val yahoo = YahooSource()
         while (true) {
-            val snapshot = runCatching { TickerStream().snapshot(Instruments.crypto) }.getOrNull()
-            if (snapshot != null) quotes = quotes + snapshot
+            val crypto = runCatching { TickerStream().snapshot(Instruments.crypto) }.getOrNull()
+            val fx = runCatching { yahoo.quotes(Instruments.forex) }.getOrNull()
+            if (crypto != null) quotes = quotes + crypto
+            if (!fx.isNullOrEmpty()) quotes = quotes + fx.mapValues { it.value.toTicker() }
             delay(20_000)
         }
     }
@@ -143,6 +151,19 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
         ) {
             AndroidView(factory = { webView }, modifier = Modifier.fillMaxSize())
 
+            // TradingView-style floating drawing rail on the chart's left edge.
+            DrawingRail(
+                tool = state.tool,
+                hasSelection = state.selectedDrawingId != null,
+                hasDrawings = state.drawings.isNotEmpty(),
+                onTool = vm::setTool,
+                onDeleteSelected = vm::removeSelectedDrawing,
+                onClearAll = vm::clearDrawings,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 6.dp),
+            )
+
             if (vm.isDrawTool(state.tool)) {
                 Text(
                     "${state.tool.label} · tap the chart",
@@ -167,30 +188,23 @@ fun ChartScreen(vm: ChartViewModel = viewModel()) {
             index = state.replayIndex,
             total = state.replayTotal,
             speed = state.replaySpeed,
+            barTime = state.candles.lastOrNull()?.time,
             onPlayPause = vm::togglePlay,
             onStepBack = vm::stepBack,
             onStepForward = vm::stepForward,
             onSpeed = vm::setReplaySpeed,
             onExit = vm::exitReplay,
+            onGoToDate = vm::startReplayFromDay,
         )
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(t.panel)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TimeframeRow(selected = state.timeframe, onSelect = vm::setTimeframe)
-            Spacer(Modifier.width(6.dp))
-            DrawingToolbar(
-                tool = state.tool,
-                hasSelection = state.selectedDrawingId != null,
-                hasDrawings = state.drawings.isNotEmpty(),
-                onTool = vm::setTool,
-                onDeleteSelected = vm::removeSelectedDrawing,
-                onClearAll = vm::clearDrawings,
-            )
         }
 
         ChartBottomBar(

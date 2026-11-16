@@ -2,6 +2,39 @@
 
 > Continuity file. Entries are **prepended** (newest first) and never deleted.
 
+## Session — 2026-11-16 — P2b+P5b: Yahoo forex data, replay-by-date, TradingView chrome
+- Agent/Tool: OpenCode · branch `main`
+- User asked (verbatim intent): make the design look like the TradingView screenshots they sent,
+  replay mode must start from a chosen DATE, and use the best free data for crypto AND forex.
+- **Yahoo Finance source (new `data/YahooSource.kt`)** — verified on-device curl first:
+  1. v8 chart API gives intraday forex candles with NO key: 1m/5d, 5m/1mo, 15m/1mo, 1h/2y, 1d/5y.
+     H4 has no Yahoo interval → 1h bars aggregated via `Aggregator.aggregate(raw, H4)`.
+     Null OHLC rows (halted bars) are skipped. Requires browser-like User-Agent.
+  2. v7 spark endpoint = one batched request for all forex quotes (24h change computed from the
+     15m series; high/low from meta). No key, works on-device.
+  3. `Feed.YAHOO` added to the enum; all 10 forex instruments now default to it. Fallback chain:
+     TwelveData (if key set) → Yahoo → ECB daily (D1) → demo. If a TwelveData fetch fails while a
+     key is set, load() retries Yahoo before demo. `liveKind` now reports the actual feed used.
+- **Replay by date (P5b)**: `ChartViewModel.startReplayFromDay("YYYY-MM-DD")` parses the day,
+  finds the first aggregated bar at/after that epoch, arms `ReplayEngine` there (min 10 bars).
+  ReplayBar grew a FROM row: monospace date field + GO button + current bar's UTC timestamp.
+  Bad input / thin history → toast, never crashes.
+- **TradingView-style chrome**:
+  1. Round symbol avatar (34dp, amber/crypto accent-blue/fx, two-letter base code) replacing the
+     rectangular MarketBadge; dropdown chevron moved next to the symbol name.
+  2. `DrawingRail` — floating vertical toolbar on the chart's left edge (round active states),
+     replaces the horizontal DrawingToolbar next to the timeframes; TF row is now full width.
+  3. Quote polling: browser sheet refreshes crypto (Binance) AND forex (Yahoo spark) every 20 s;
+     chart header refreshes its quote every 45 s while open.
+- Verification: VPS compile + `:app:testDebugUnitTest :app:assembleDebug` → BUILD SUCCESSFUL,
+  21 tests pass. Debug APK 19,906,383 bytes. CI run watched after push; artifact downloaded as
+  `TradeView-v0.4.0-debug.apk` to the phone's Download folder.
+- Gotchas hit this session (all fixed): spark `indicators` is an object not an array (optJSONArray
+  with a String on a JSONArray resolves to optJSONArray(Int) → confusing type error); two quote
+  types (Yahoo vs Ticker) can't share one `val q` without converting first.
+- Pending: on-device check by user (forex intraday should now show real Yahoo candles; replay date
+  GO button). Then P7/P9 polish, app icon, release build.
+
 ## Session — 2026-11-16 — P2+P3+P6: live crypto/forex data, instrument browser, drawing tools, premium UI
 - Agent/Tool: OpenCode · branch `main`
 - User asked (verbatim intent): buttons/UI-UX more premium + browsing tool + crypto AND forex data + finish everything remaining.

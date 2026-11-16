@@ -28,16 +28,16 @@ object Instruments {
     )
 
     val forex = listOf(
-        Instrument("fx:EURUSD", "EUR/USD", "Euro / US Dollar", Market.FOREX, Feed.TWELVEDATA, 1.0865, 0.35, 5),
-        Instrument("fx:GBPUSD", "GBP/USD", "Pound / US Dollar", Market.FOREX, Feed.TWELVEDATA, 1.2640, 0.40, 5),
-        Instrument("fx:USDJPY", "USD/JPY", "US Dollar / Yen", Market.FOREX, Feed.TWELVEDATA, 154.20, 0.45, 3),
-        Instrument("fx:AUDUSD", "AUD/USD", "Aussie / US Dollar", Market.FOREX, Feed.TWELVEDATA, 0.6585, 0.50, 5),
-        Instrument("fx:USDCAD", "USD/CAD", "US Dollar / Loonie", Market.FOREX, Feed.TWELVEDATA, 1.4020, 0.40, 5),
-        Instrument("fx:USDCHF", "USD/CHF", "US Dollar / Franc", Market.FOREX, Feed.TWELVEDATA, 0.8810, 0.40, 5),
-        Instrument("fx:NZDUSD", "NZD/USD", "Kiwi / US Dollar", Market.FOREX, Feed.TWELVEDATA, 0.5920, 0.55, 5),
-        Instrument("fx:EURGBP", "EUR/GBP", "Euro / Pound", Market.FOREX, Feed.TWELVEDATA, 0.8595, 0.30, 5),
-        Instrument("fx:EURJPY", "EUR/JPY", "Euro / Yen", Market.FOREX, Feed.TWELVEDATA, 167.50, 0.50, 3),
-        Instrument("fx:GBPJPY", "GBP/JPY", "Pound / Yen", Market.FOREX, Feed.TWELVEDATA, 194.90, 0.65, 3),
+        Instrument("fx:EURUSD", "EUR/USD", "Euro / US Dollar", Market.FOREX, Feed.YAHOO, 1.0865, 0.35, 5),
+        Instrument("fx:GBPUSD", "GBP/USD", "Pound / US Dollar", Market.FOREX, Feed.YAHOO, 1.2640, 0.40, 5),
+        Instrument("fx:USDJPY", "USD/JPY", "US Dollar / Yen", Market.FOREX, Feed.YAHOO, 154.20, 0.45, 3),
+        Instrument("fx:AUDUSD", "AUD/USD", "Aussie / US Dollar", Market.FOREX, Feed.YAHOO, 0.6585, 0.50, 5),
+        Instrument("fx:USDCAD", "USD/CAD", "US Dollar / Loonie", Market.FOREX, Feed.YAHOO, 1.4020, 0.40, 5),
+        Instrument("fx:USDCHF", "USD/CHF", "US Dollar / Franc", Market.FOREX, Feed.YAHOO, 0.8810, 0.40, 5),
+        Instrument("fx:NZDUSD", "NZD/USD", "Kiwi / US Dollar", Market.FOREX, Feed.YAHOO, 0.5920, 0.55, 5),
+        Instrument("fx:EURGBP", "EUR/GBP", "Euro / Pound", Market.FOREX, Feed.YAHOO, 0.8595, 0.30, 5),
+        Instrument("fx:EURJPY", "EUR/JPY", "Euro / Yen", Market.FOREX, Feed.YAHOO, 167.50, 0.50, 3),
+        Instrument("fx:GBPJPY", "GBP/JPY", "Pound / Yen", Market.FOREX, Feed.YAHOO, 194.90, 0.65, 3),
     )
 
     val all: List<Instrument> get() = crypto + forex
